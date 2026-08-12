@@ -207,6 +207,5 @@
     UI.restore(state, host);
   }
 
-  UI.chrome();
-  render();
+  UI.boot(render);
 })();

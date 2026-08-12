@@ -1,5 +1,6 @@
 /* ============================================================================
    Sign-in against the Django REST API (JWT).
+   All assessment pages require this login.
 ============================================================================ */
 (() => {
   const form = document.querySelector("#login");
@@ -8,15 +9,20 @@
 
   if (!form) return;
 
-  // Already signed in → go to admin or dashboard
-  const existing = AssessAPI.tokens.get();
-  if (existing?.access) {
-    const session = (() => {
-      try { return JSON.parse(localStorage.getItem("p10354-session")); } catch { return null; }
-    })();
-    const role = session?.role || "";
-    if (/admin/i.test(role) || role === "ADMIN") location.replace("admin.html");
-  }
+  // Already signed in → continue to next page or role home
+  (async () => {
+    if (!AssessAPI.tokens.get()?.access) return;
+    try {
+      const user = await AssessAPI.me();
+      AssessAPI.rememberUser(user);
+      const next = new URLSearchParams(location.search).get("next");
+      if (user.must_change_password) location.replace("change-password.html");
+      else if (next && /\.html/.test(next)) location.replace(next);
+      else location.replace(landingFor(user.role));
+    } catch {
+      AssessAPI.logout(false);
+    }
+  })();
 
   const fail = (message) => {
     error.textContent = message;
@@ -38,18 +44,11 @@
     try {
       const data = await AssessAPI.login(form.username.value.trim(), form.password.value);
       AssessAPI.tokens.set({ access: data.access, refresh: data.refresh });
-      const user = data.user;
-      localStorage.setItem("p10354-session", JSON.stringify({
-        userId: user.id,
-        role: user.role_label || user.role,
-        roleCode: user.role,
-        username: user.username,
-        at: new Date().toISOString(),
-      }));
+      AssessAPI.rememberUser(data.user);
       const next = new URLSearchParams(location.search).get("next");
-      location.href = user.must_change_password
+      location.href = data.user.must_change_password
         ? "change-password.html"
-        : (next && next.endsWith(".html") ? next : landingFor(user.role));
+        : (next && /\.html/.test(next) ? next : landingFor(data.user.role));
     } catch (err) {
       const msg = err.data?.detail
         || (Array.isArray(err.data?.non_field_errors) && err.data.non_field_errors[0])

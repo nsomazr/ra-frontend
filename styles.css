@@ -151,10 +151,19 @@ h1, h2, h3, h4 {
   transition: background 0.25s var(--ease), color 0.25s var(--ease);
 }
 
-.offline {
-  background: var(--ochre-soft);
-  color: #7a5a10;
+.account-pill {
+  background: rgba(255, 255, 255, 0.14);
+  color: #e8f4ee;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+.top-actions .btn.secondary {
+  background: rgba(255, 255, 255, 0.95);
+}
+
 
 .nav {
   max-width: 1280px;

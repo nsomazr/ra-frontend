@@ -52,14 +52,16 @@ const UI = (() => {
   function chrome() {
     const host = $("#chrome");
     if (!host) return;
+    if (!AssessAPI.requireAuth()) return;
+
     const page = host.dataset.page;
     const subtitle = host.dataset.subtitle || "External Programmatic Assessment field system";
-    const session = (() => {
-      try { return JSON.parse(localStorage.getItem("p10354-session")); } catch { return null; }
-    })();
-    const account = session
-      ? `<a class="btn small secondary" href="login.html" title="Signed in">${esc((session.role || "Account").split("/")[0].trim())}</a>`
-      : `<a class="btn small secondary" href="login.html">Sign in</a>`;
+    const session = AssessAPI.session.get();
+    const label = session?.username || (session?.role || "Account").split("/")[0].trim();
+    const isAdmin = session?.roleCode === "ADMIN" || /administrator/i.test(session?.role || "");
+
+    const nav = NAV.filter((n) => n.id !== "admin" || isAdmin);
+
     host.innerHTML = `
       <div class="top">
         <div class="topin">
@@ -69,13 +71,24 @@ const UI = (() => {
           </div>
           <div class="top-actions">
             <span id="sync" class="online">Checking sync…</span>
-            ${account}
+            <span class="pill account-pill" title="Signed in">${esc(label)}</span>
+            <button type="button" class="btn small secondary" id="signOutBtn">Sign out</button>
           </div>
         </div>
-        <nav class="nav" aria-label="Primary">${NAV.map((n) =>
+        <nav class="nav" aria-label="Primary">${nav.map((n) =>
           `<a class="${n.id === page ? "active" : ""}" href="${n.href}">${esc(n.label)}</a>`).join("")}</nav>
       </div>`;
     syncBadge();
+    const out = $("#signOutBtn");
+    if (out) out.onclick = () => AssessAPI.logout(true);
+  }
+
+  /** Gate the page: require login, paint chrome, then run the page callback. */
+  async function boot(start) {
+    const ok = await AssessAPI.ensureAuth();
+    if (!ok) return;
+    chrome();
+    if (typeof start === "function") await start();
   }
 
   function syncBadge() {
@@ -259,7 +272,7 @@ const UI = (() => {
   }
 
   return {
-    $, $$, esc, reset, bind, wire, chrome, syncBadge, pill, ratingPill, options,
+    $, $$, esc, reset, bind, wire, chrome, boot, syncBadge, pill, ratingPill, options,
     field, button, reference, recordCard, register, tabs, notice,
     toCsv, saveCsv, downloadCsv, slug, snapshot, restore,
   };

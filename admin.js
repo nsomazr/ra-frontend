@@ -24,17 +24,7 @@
   let apiUsers = null;
   let busy = false;
 
-  const session = () => {
-    try { return JSON.parse(localStorage.getItem("p10354-session")); } catch { return null; }
-  };
-
-  const requireAuth = () => {
-    if (!AssessAPI.tokens.get()?.access) {
-      location.replace(`login.html?next=${encodeURIComponent("admin.html")}`);
-      return false;
-    }
-    return true;
-  };
+  const session = () => AssessAPI.session.get();
 
   async function hash(value) {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -383,11 +373,7 @@
           <div><dt>Since</dt><dd>${sess?.at ? new Date(sess.at).toLocaleString() : "—"}</dd></div>
         </dl>
         <div class="actions" style="margin-top:12px">
-          ${button("Sign out", () => {
-            AssessAPI.tokens.clear();
-            localStorage.removeItem("p10354-session");
-            location.href = "login.html";
-          }, "btn secondary")}
+          ${button("Sign out", () => AssessAPI.logout(true), "btn secondary")}
         </div>
       </section>
 
@@ -465,20 +451,12 @@
     UI.wire(host);
     wireUserForm();
     const out = UI.$("#adminSignOut");
-    if (out) out.onclick = () => {
-      AssessAPI.tokens.clear();
-      localStorage.removeItem("p10354-session");
-      location.href = "login.html";
-    };
+    if (out) out.onclick = () => AssessAPI.logout(true);
     UI.restore(state, host);
   }
 
-  async function boot() {
-    if (!requireAuth()) return;
-    UI.chrome();
+  UI.boot(async () => {
     await loadApiUsers();
     render();
-  }
-
-  boot();
+  });
 })();
