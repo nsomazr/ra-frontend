@@ -9,7 +9,11 @@
 
   if (!form) return;
 
-  // Already signed in → continue to next page or role home
+  const landingFor = (role) =>
+    role === "ADMIN" ? "admin.html"
+      : role === "TEAM_LEADER" ? "review.html"
+        : "dashboard.html";
+
   (async () => {
     if (!AssessAPI.tokens.get()?.access) return;
     try {
@@ -29,12 +33,6 @@
     error.classList.remove("hidden");
   };
 
-  const landingFor = (role) =>
-    role === "ADMIN" ? "admin.html"
-      : role === "TEAM_LEADER" ? "review.html"
-        : role === "CBM_VIEWER" ? "dashboard.html"
-          : "dashboard.html";
-
   form.onsubmit = async (e) => {
     e.preventDefault();
     error.classList.add("hidden");
@@ -51,14 +49,7 @@
         ? "change-password.html"
         : (next && /\.html/.test(next) ? next : landingFor(data.user.role));
     } catch (err) {
-      let msg = err.data?.detail
-        || (Array.isArray(err.data?.non_field_errors) && err.data.non_field_errors[0])
-        || err.message
-        || "Sign-in failed.";
-      if (msg === "Failed to fetch" || err.name === "TypeError") {
-        msg = "Cannot reach the API. The backend may be down (check pm2 / port 8087).";
-      }
-      fail(typeof msg === "string" ? msg : "Incorrect username or password.");
+      fail(AssessAPI.friendlyError(err, "Unable to sign in. Please try again."));
       if (submit) {
         submit.disabled = false;
         submit.textContent = "Sign in";

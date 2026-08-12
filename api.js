@@ -42,7 +42,6 @@ const AssessAPI = (() => {
     if (redirect) location.replace("login.html");
   }
 
-  /** Sync gate: redirect to login if no access token. */
   function requireAuth() {
     if (tokens.get()?.access) return true;
     const page = `${location.pathname.split("/").pop() || "dashboard.html"}${location.search}`;
@@ -60,10 +59,6 @@ const AssessAPI = (() => {
     });
   }
 
-  /**
-   * Async gate: require token and confirm it with /auth/me/.
-   * Clears session and redirects on 401.
-   */
   async function ensureAuth() {
     if (!requireAuth()) return false;
     try {
@@ -75,10 +70,44 @@ const AssessAPI = (() => {
         logout(true);
         return false;
       }
-      // Network / API down: keep local token so field work can continue offline.
       if (session.get()) return session.get();
       return true;
     }
+  }
+
+  /** Map API/network failures to safe, user-facing copy (never expose infra). */
+  function friendlyError(err, fallback = "Something went wrong. Please try again.") {
+    const status = err?.status;
+    const data = err?.data;
+    const detail = data?.detail;
+    const fieldMsg =
+      data?.username?.[0] || data?.password?.[0] || data?.email?.[0] || data?.non_field_errors?.[0];
+    const raw = typeof detail === "string" ? detail
+      : (typeof fieldMsg === "string" ? fieldMsg : (err?.message || ""));
+
+    if (!status && (err?.name === "TypeError" || /failed to fetch|networkerror|load failed|cors/i.test(raw))) {
+      return "We couldn’t connect right now. Please try again in a moment.";
+    }
+    if (status === 400 || status === 401) {
+      if (/already exists|unique|taken/i.test(raw)) return "That username is already taken.";
+      if (/no active account|credentials|incorrect|password|username/i.test(raw) && !fieldMsg) {
+        return "Incorrect username or password.";
+      }
+      if (typeof fieldMsg === "string" && fieldMsg.length < 120) return fieldMsg;
+      if (status === 401) return "Sign-in details look incorrect. Please check and try again.";
+      return fallback;
+    }
+    if (status === 403) return "You don’t have permission to do that.";
+    if (status === 404) return "The requested item could not be found.";
+    if (status === 429) return "Too many attempts. Please wait a moment and try again.";
+    if (status >= 500 || status === 502 || status === 503 || status === 504) {
+      return "The service is temporarily unavailable. Please try again later.";
+    }
+    if (typeof detail === "string" && detail.length < 120 &&
+        !/traceback|exception|\/home\/|venv|gunicorn|pm2|nginx|8087|3087|127\.0\.0\.1|localhost/i.test(detail)) {
+      return detail;
+    }
+    return fallback;
   }
 
   async function request(path, options = {}) {
@@ -91,19 +120,28 @@ const AssessAPI = (() => {
     if (auth?.access && !options.skipAuth) {
       headers.Authorization = `Bearer ${auth.access}`;
     }
-    const res = await fetch(`${cfg().apiBase}${path}`, { ...options, headers });
+
+    let res;
+    try {
+      res = await fetch(`${cfg().apiBase}${path}`, { ...options, headers });
+    } catch (networkErr) {
+      const err = new Error(friendlyError(networkErr));
+      err.status = 0;
+      err.cause = networkErr;
+      if (typeof console !== "undefined") console.warn("[assess-api] network error", networkErr);
+      throw err;
+    }
+
     const text = await res.text();
     let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch { data = { detail: text }; }
+    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+
     if (!res.ok) {
-      if ((res.status === 401 || res.status === 403) && !options.skipAuth) {
-        // Stale session — force re-login for protected calls.
-        if (res.status === 401) logout(true);
-      }
-      const message = data?.detail || data?.non_field_errors?.[0] || `Request failed (${res.status})`;
-      const err = new Error(typeof message === "string" ? message : JSON.stringify(message));
+      if (res.status === 401 && !options.skipAuth) logout(true);
+      const err = new Error(friendlyError({ status: res.status, data, message: data?.detail }));
       err.status = res.status;
       err.data = data;
+      if (typeof console !== "undefined") console.warn("[assess-api]", res.status, path, data);
       throw err;
     }
     return data;
@@ -121,6 +159,7 @@ const AssessAPI = (() => {
     requireAuth,
     ensureAuth,
     rememberUser,
+    friendlyError,
     request,
     health: () => request("/health/", { skipAuth: true }),
     login: (username, password) =>

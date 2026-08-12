@@ -1,30 +1,24 @@
 # ra-frontend
 
-Node.js static server for the P10354 field assessment client (vanilla HTML/CSS/JS).
+Static field assessment client, served by Node on port **3087**.
 
-- **Public URL:** https://assess.nileagi.com
-- **PM2 port:** `3087`
-- **API:** https://api.assess.nileagi.com (injected via `/config.js`)
-
-## Admin login
+Deployed **independently** from the API.
 
 | | |
 | --- | --- |
-| URL | http://localhost:3087/login.html (prod: https://assess.nileagi.com/login.html) |
-| Username | `Angel` |
-| Password | `ChangeMeNow!` |
+| Public URL | https://assess.nileagi.com |
+| PM2 | `assess-frontend` on `:3087` |
+| API | https://api.assess.nileagi.com (browser → API directly) |
 
-## View-only login
+## Deploy
 
-| | |
-| --- | --- |
-| Username | `viewer` |
-| Password | `ViewOnly123!` |
-| Role | CBM Viewer — browse only, no edits |
+```bash
+cp -n .env.example .env
+# API_URL=https://api.assess.nileagi.com
+./deploy.sh
+```
 
-**All assessment pages require login** (dashboard, school assessment, programme, consent, review, admin). Unauthenticated visits redirect to `/login.html`. Admins land on **Administration** after sign-in.
-
-Change passwords via `BOOTSTRAP_*` in `ra-backend/.env` and re-run `python manage.py seed_framework`.
+Nginx should proxy `assess.nileagi.com` → `127.0.0.1:3087`.
 
 ## Local
 
@@ -32,13 +26,11 @@ Change passwords via `BOOTSTRAP_*` in `ra-backend/.env` and re-run `python manag
 ./start.sh
 ```
 
-Opens on http://localhost:3087 with `API_URL` from `.env` (defaults to `http://127.0.0.1:8087`).
+Uses `API_URL=http://127.0.0.1:8087` from `.env` (start the API separately).
 
-## Production
+## Logins
 
-```bash
-cp .env.example .env   # API_URL=https://api.assess.nileagi.com
-./deploy.sh            # npm install + pm2 start server.js
-```
-
-Point the reverse proxy for `assess.nileagi.com` at `127.0.0.1:3087`.
+| Role | Username | Password |
+| --- | --- | --- |
+| Admin | `Angel` | `ChangeMeNow!` |
+| View only | `viewer` | `ViewOnly123!` |

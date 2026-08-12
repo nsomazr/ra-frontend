@@ -1,10 +1,12 @@
 /**
  * P10354 field assessment — Node.js static server.
- * Serves the vanilla HTML/JS client and injects runtime API config.
+ * Serves the vanilla HTML/JS client only.
  *
- * Local:  http://localhost:3087
- * Public: https://assess.nileagi.com  (reverse proxy -> :3087)
- * API:    https://api.assess.nileagi.com
+ * Frontend and backend are deployed independently:
+ *   https://assess.nileagi.com     → this server (:3087)
+ *   https://api.assess.nileagi.com → Django/gunicorn (:8087)
+ *
+ * The browser talks to API_URL directly (no proxy).
  */
 const path = require("path");
 const express = require("express");
@@ -12,10 +14,10 @@ require("dotenv").config();
 
 const PORT = Number(process.env.PORT || process.env.FRONTEND_PORT || 3087);
 const API_URL = (process.env.API_URL || "https://api.assess.nileagi.com").replace(/\/$/, "");
+const PUBLIC_URL = (process.env.PUBLIC_URL || "https://assess.nileagi.com").replace(/\/$/, "");
 const ROOT = __dirname;
 
 const app = express();
-
 app.disable("x-powered-by");
 
 app.get("/config.js", (_req, res) => {
@@ -25,14 +27,17 @@ app.get("/config.js", (_req, res) => {
     `window.ASSESS_CONFIG = Object.freeze(${JSON.stringify({
       apiUrl: API_URL,
       apiBase: `${API_URL}/api`,
-      publicUrl: process.env.PUBLIC_URL || "https://assess.nileagi.com",
+      publicUrl: PUBLIC_URL,
       env: process.env.NODE_ENV || "production",
     })});\n`
   );
 });
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "assess-frontend", apiUrl: API_URL });
+  res.json({
+    status: "ok",
+    service: "assess-frontend",
+  });
 });
 
 app.use(express.static(ROOT, {

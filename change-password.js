@@ -25,7 +25,7 @@
         const role = data.user?.role || AssessAPI.session.get()?.roleCode;
         location.href = role === "ADMIN" ? "admin.html" : "dashboard.html";
       } catch (err) {
-        error.textContent = err.message || "Could not update password.";
+        error.textContent = AssessAPI.friendlyError(err, "Could not update your password. Please try again.");
         error.classList.remove("hidden");
       }
     };

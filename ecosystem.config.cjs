@@ -12,12 +12,14 @@ module.exports = {
       env: {
         NODE_ENV: 'development',
         PORT: 3087,
+        PUBLIC_URL: 'http://localhost:3087',
+        API_URL: 'http://127.0.0.1:8087',
       },
       env_production: {
         NODE_ENV: 'production',
         PORT: 3087,
-        API_URL: 'https://api.assess.nileagi.com',
         PUBLIC_URL: 'https://assess.nileagi.com',
+        API_URL: 'https://api.assess.nileagi.com',
       },
     },
   ],

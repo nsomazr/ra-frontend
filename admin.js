@@ -207,7 +207,7 @@
             active: true,
           });
           await loadApiUsers();
-          ok.textContent = `User “${username}” created on the API.`;
+          ok.textContent = `User “${username}” created.`;
           ok.classList.remove("hidden");
           form.reset();
           render();
@@ -235,8 +235,7 @@
           render();
         }
       } catch (err) {
-        const detail = err.data?.username?.[0] || err.data?.detail || err.message;
-        error.textContent = typeof detail === "string" ? detail : "Could not add user.";
+        error.textContent = AssessAPI.friendlyError(err, "Could not add that user. Please try again.");
         error.classList.remove("hidden");
         if (btn) { btn.disabled = false; btn.textContent = "Add user"; }
       } finally {
