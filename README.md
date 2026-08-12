@@ -14,9 +14,17 @@ Node.js static server for the P10354 field assessment client (vanilla HTML/CSS/J
 | Username | `Angel` |
 | Password | `ChangeMeNow!` |
 
+## View-only login
+
+| | |
+| --- | --- |
+| Username | `viewer` |
+| Password | `ViewOnly123!` |
+| Role | CBM Viewer — browse only, no edits |
+
 **All assessment pages require login** (dashboard, school assessment, programme, consent, review, admin). Unauthenticated visits redirect to `/login.html`. Admins land on **Administration** after sign-in.
 
-Change the password via `BOOTSTRAP_ADMIN_*` in `ra-backend/.env` and re-run `python manage.py seed_framework`.
+Change passwords via `BOOTSTRAP_*` in `ra-backend/.env` and re-run `python manage.py seed_framework`.
 
 ## Local
 

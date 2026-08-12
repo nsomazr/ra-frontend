@@ -59,8 +59,18 @@ const UI = (() => {
     const session = AssessAPI.session.get();
     const label = session?.username || (session?.role || "Account").split("/")[0].trim();
     const isAdmin = session?.roleCode === "ADMIN" || /administrator/i.test(session?.role || "");
+    const isViewer = session?.roleCode === "CBM_VIEWER" || /cbm viewer/i.test(session?.role || "");
+    document.body.classList.toggle("view-only", !!isViewer);
 
-    const nav = NAV.filter((n) => n.id !== "admin" || isAdmin);
+    const nav = NAV.filter((n) => {
+      if (n.id === "admin") return isAdmin;
+      if (isViewer && (n.id === "admin")) return false;
+      return true;
+    });
+
+    const viewBanner = isViewer
+      ? `<div class="view-only-banner" role="status">View only — you can browse assessment data but cannot edit or submit.</div>`
+      : "";
 
     host.innerHTML = `
       <div class="top">
@@ -71,16 +81,22 @@ const UI = (() => {
           </div>
           <div class="top-actions">
             <span id="sync" class="online">Checking sync…</span>
-            <span class="pill account-pill" title="Signed in">${esc(label)}</span>
+            <span class="pill account-pill" title="Signed in">${esc(label)}${isViewer ? " · view" : ""}</span>
             <button type="button" class="btn small secondary" id="signOutBtn">Sign out</button>
           </div>
         </div>
         <nav class="nav" aria-label="Primary">${nav.map((n) =>
           `<a class="${n.id === page ? "active" : ""}" href="${n.href}">${esc(n.label)}</a>`).join("")}</nav>
-      </div>`;
+      </div>
+      ${viewBanner}`;
     syncBadge();
     const out = $("#signOutBtn");
     if (out) out.onclick = () => AssessAPI.logout(true);
+
+    // Viewers cannot open administration
+    if (isViewer && page === "admin") {
+      location.replace("dashboard.html");
+    }
   }
 
   /** Gate the page: require login, paint chrome, then run the page callback. */

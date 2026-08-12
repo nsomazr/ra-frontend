@@ -32,7 +32,8 @@
   const landingFor = (role) =>
     role === "ADMIN" ? "admin.html"
       : role === "TEAM_LEADER" ? "review.html"
-        : "dashboard.html";
+        : role === "CBM_VIEWER" ? "dashboard.html"
+          : "dashboard.html";
 
   form.onsubmit = async (e) => {
     e.preventDefault();

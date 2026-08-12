@@ -164,6 +164,31 @@ h1, h2, h3, h4 {
   background: rgba(255, 255, 255, 0.95);
 }
 
+.view-only-banner {
+  background: linear-gradient(90deg, #f5e6b8, #efe6d2);
+  color: #6b5212;
+  text-align: center;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid #e2d4a8;
+}
+
+body.view-only .btn:not(.secondary):not(#signOutBtn),
+body.view-only button.btn:not(.secondary):not(#signOutBtn),
+body.view-only form#userForm,
+body.view-only .school-multi {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+body.view-only input:not([type="hidden"]),
+body.view-only select,
+body.view-only textarea {
+  pointer-events: none;
+  background: #f3f6f3;
+}
+
 
 .nav {
   max-width: 1280px;
