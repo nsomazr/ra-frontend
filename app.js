@@ -54,13 +54,25 @@ const UI = (() => {
     if (!host) return;
     const page = host.dataset.page;
     const subtitle = host.dataset.subtitle || "External Programmatic Assessment field system";
+    const session = (() => {
+      try { return JSON.parse(localStorage.getItem("p10354-session")); } catch { return null; }
+    })();
+    const account = session
+      ? `<a class="btn small secondary" href="login.html" title="Signed in">${esc((session.role || "Account").split("/")[0].trim())}</a>`
+      : `<a class="btn small secondary" href="login.html">Sign in</a>`;
     host.innerHTML = `
       <div class="top">
         <div class="topin">
-          <div class="brand"><b>REET · CBM ${esc(F.meta.project)}</b><small>${esc(subtitle)}</small></div>
-          <span id="sync" class="online">Checking sync…</span>
+          <div class="brand">
+            <b>REET · CBM ${esc(F.meta.project)}</b>
+            <small>${esc(subtitle)}</small>
+          </div>
+          <div class="top-actions">
+            <span id="sync" class="online">Checking sync…</span>
+            ${account}
+          </div>
         </div>
-        <nav class="nav">${NAV.map((n) =>
+        <nav class="nav" aria-label="Primary">${NAV.map((n) =>
           `<a class="${n.id === page ? "active" : ""}" href="${n.href}">${esc(n.label)}</a>`).join("")}</nav>
       </div>`;
     syncBadge();
@@ -71,7 +83,7 @@ const UI = (() => {
     if (!el) return;
     const paint = () => {
       const online = navigator.onLine;
-      el.textContent = online ? "Online · changes queued for API sync" : "Offline · drafts and evidence held locally";
+      el.textContent = online ? "Online · sync ready" : "Offline · held locally";
       el.className = online ? "online" : "online offline";
     };
     addEventListener("online", paint);

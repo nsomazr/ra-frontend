@@ -4,31 +4,33 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Sign in · REET CBM P10354</title>
-  <link rel="stylesheet" href="styles.css?v=7">
+  <link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
-  <main class="shell" style="max-width:480px;padding-top:9vh">
-    <section class="card pad">
-      <p class="label">REET Limited · CBM P10354</p>
-      <h1>Sign in</h1>
-      <p>Authenticate against the assessment API. Session tokens are stored for this browser only.</p>
-      <form id="login" class="stack" style="margin-top:18px">
-        <label>Username
-          <input name="username" autocomplete="username" required>
-        </label>
-        <label>Password
-          <input name="password" type="password" autocomplete="current-password" required>
-        </label>
-        <p id="error" class="notice hidden" style="color:#8a1f1f"></p>
-        <button class="btn large" type="submit">Sign in</button>
-      </form>
-      <p class="help" style="margin-top:18px">
-        API: <code id="api-host">…</code>
-      </p>
-    </section>
+  <main class="auth-page">
+    <div class="auth-shell">
+      <div class="auth-brand">
+        <div class="mark" aria-hidden="true">R</div>
+        <h1>Sign in</h1>
+        <p>REET · CBM P10354 field assessment</p>
+      </div>
+      <section class="auth-card">
+        <form id="login" class="stack">
+          <label>Username
+            <input name="username" autocomplete="username" required placeholder="Your username">
+          </label>
+          <label>Password
+            <input name="password" type="password" autocomplete="current-password" required placeholder="••••••••">
+          </label>
+          <p id="error" class="notice red hidden"></p>
+          <button class="btn large" type="submit">Continue</button>
+        </form>
+        <p class="auth-meta">API · <code id="api-host">…</code></p>
+      </section>
+    </div>
   </main>
   <script src="config.js"></script>
-  <script src="api.js?v=7"></script>
-  <script src="login.js?v=7"></script>
+  <script src="api.js?v=8"></script>
+  <script src="login.js?v=8"></script>
 </body>
 </html>
