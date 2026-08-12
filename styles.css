@@ -754,6 +754,101 @@ input[type="file"] { padding: 9px; font-size: 12px; }
 .summary .warn b { color: var(--coral); }
 
 /* --- Auth / gate pages ---------------------------------------------------- */
+.auth-body { min-height: 100vh; }
+
+.auth-split {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+}
+
+.auth-hero {
+  display: flex;
+  align-items: stretch;
+  padding: clamp(28px, 5vw, 56px);
+  color: #eef7f2;
+  background:
+    radial-gradient(600px 320px at 20% 15%, rgba(159, 217, 184, 0.22), transparent 60%),
+    linear-gradient(155deg, #0b2f28 0%, #13483c 48%, #1a5a49 100%);
+}
+
+.auth-hero-inner {
+  max-width: 460px;
+  margin: auto 0;
+  animation: rise 0.55s var(--ease) both;
+}
+
+.auth-kicker {
+  margin: 0 0 14px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(216, 239, 228, 0.85);
+}
+
+.auth-hero h1 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(3rem, 6vw, 4.4rem);
+  letter-spacing: -0.04em;
+}
+
+.auth-tagline {
+  margin: 10px 0 0;
+  font-family: var(--display);
+  font-size: 1.35rem;
+  color: #cfe9db;
+}
+
+.auth-copy {
+  margin: 18px 0 0;
+  max-width: 36ch;
+  color: rgba(232, 244, 238, 0.84);
+  line-height: 1.6;
+}
+
+.auth-points {
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.auth-points li {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 14px;
+}
+
+.auth-panel {
+  display: grid;
+  place-items: center;
+  padding: clamp(20px, 4vw, 40px) 18px;
+}
+
+.auth-panel-inner {
+  width: min(420px, 100%);
+  animation: rise 0.6s var(--ease) 0.05s both;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(183, 201, 191, 0.6);
+  border-radius: 22px;
+  padding: clamp(22px, 4vw, 32px);
+  box-shadow: var(--shadow);
+}
+
+.auth-form .field { margin-bottom: 14px; }
+.auth-submit { width: 100%; margin-top: 4px; }
+
+.mobile-only { display: none; }
+.desktop-only { display: block; }
+
 .auth-page {
   min-height: 100vh;
   display: grid;
@@ -770,7 +865,7 @@ input[type="file"] { padding: 9px; font-size: 12px; }
 
 .auth-brand {
   text-align: center;
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 
 .auth-brand .mark {
@@ -823,13 +918,117 @@ input[type="file"] { padding: 9px; font-size: 12px; }
 .auth-card .btn { width: 100%; margin-top: 6px; }
 
 .auth-meta {
-  margin-top: 16px;
+  margin-top: 14px;
   text-align: center;
   color: var(--muted);
   font-size: 12px;
 }
 
+.auth-meta a {
+  color: var(--forest);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-meta a:hover { text-decoration: underline; }
+
 .gate-page .auth-shell { width: min(560px, 100%); }
+
+/* --- Admin responsive surfaces ------------------------------------------- */
+.admin-two {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.9fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.admin-panel { overflow: hidden; }
+
+.admin-user-cards,
+.admin-assign-cards,
+.admin-region-cards,
+.admin-school-cards {
+  display: none;
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+
+.admin-user-card,
+.admin-assign-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.admin-user-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.admin-user-top b { display: block; font-size: 15px; }
+.admin-user-top small { display: block; color: var(--muted); margin-top: 3px; font-size: 12px; }
+
+.admin-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0;
+}
+
+.admin-meta dt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.admin-meta dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.session-meta { grid-template-columns: repeat(3, 1fr); }
+
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.admin-stat {
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f7faf8, #fff);
+  border: 1px solid var(--line);
+  text-align: center;
+}
+
+.admin-stat b {
+  display: block;
+  font-family: var(--display);
+  font-size: 1.5rem;
+}
+
+.admin-stat span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.school-multi {
+  min-height: 140px;
+}
 
 /* --- Landing -------------------------------------------------------------- */
 .landing {
@@ -907,9 +1106,22 @@ code {
 }
 
 /* --- Responsive ----------------------------------------------------------- */
+@media (max-width: 1100px) {
+  .admin-two { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 1000px) {
   .grid { grid-template-columns: repeat(2, 1fr); }
   .two { grid-template-columns: 1fr; }
+  .auth-split { grid-template-columns: 1fr; }
+  .auth-hero { min-height: auto; padding: 28px 20px 24px; }
+  .auth-hero-inner { max-width: none; }
+  .auth-points { display: none; }
+  .auth-copy { display: none; }
+  .mobile-only { display: block; }
+  .desktop-only { display: none; }
+  .auth-panel { padding-top: 8px; }
+  .session-meta { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
@@ -918,7 +1130,8 @@ code {
   .brand small { white-space: normal; }
   .grid { grid-template-columns: 1fr; }
   .heading { display: block; }
-  .heading .actions { margin-top: 14px; }
+  .heading .actions { margin-top: 14px; width: 100%; }
+  .heading .actions .btn { flex: 1 1 auto; }
   .fieldgrid { grid-template-columns: 1fr; }
   .record > summary { grid-template-columns: 1fr; }
   .chips { justify-content: flex-start; }
@@ -927,4 +1140,22 @@ code {
   .section-head .actions { margin-top: 10px; }
   input, select, textarea { padding: 13px; font-size: 16px; }
   .btn { padding: 13px 16px; }
+
+  .admin-desktop-table { display: none; }
+  .admin-user-cards,
+  .admin-assign-cards,
+  .admin-region-cards,
+  .admin-school-cards {
+    display: grid;
+  }
+
+  .admin-stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .tabs { gap: 4px; padding: 4px; }
+  .tab { padding: 10px 12px; font-size: 12px; flex: 1 1 auto; text-align: center; }
+  .auth-panel-inner { padding: 20px 16px; border-radius: 18px; }
+  .auth-hero h1 { font-size: 2.6rem; }
+}
+
+@media (max-width: 420px) {
+  .admin-meta { grid-template-columns: 1fr; }
 }

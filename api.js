@@ -49,6 +49,7 @@ const AssessAPI = (() => {
   return {
     config: cfg,
     tokens,
+    request,
     health: () => request("/health/", { skipAuth: true }),
     login: (username, password) =>
       request("/auth/login/", { method: "POST", body: { username, password }, skipAuth: true }),
@@ -66,6 +67,7 @@ const AssessAPI = (() => {
     saveProgramme: (regionId, body) => request(`/programmes/${regionId}/`, { method: "PATCH", body }),
     consents: (params = "") => request(`/consents/${params ? `?${params}` : ""}`),
     users: () => request("/users/"),
+    createUser: (body) => request("/users/", { method: "POST", body }),
     settings: () => request("/settings/"),
   };
 })();

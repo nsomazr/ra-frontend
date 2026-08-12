@@ -6,6 +6,16 @@ Node.js static server for the P10354 field assessment client (vanilla HTML/CSS/J
 - **PM2 port:** `3087`
 - **API:** https://api.assess.nileagi.com (injected via `/config.js`)
 
+## Admin login
+
+| | |
+| --- | --- |
+| URL | http://localhost:3087/login.html (prod: https://assess.nileagi.com/login.html) |
+| Username | `Angel` |
+| Password | `ChangeMeNow!` |
+
+Admins land on **Administration** (`admin.html`) after sign-in. Change the password via `BOOTSTRAP_ADMIN_*` in `ra-backend/.env` and re-run `python manage.py seed_framework`.
+
 ## Local
 
 ```bash
