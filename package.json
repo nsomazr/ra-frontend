@@ -1,0 +1,19 @@
+{
+  "name": "ra-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "P10354 field assessment client \u2014 served by Node.js",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js",
+    "deploy": "./deploy.sh"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
