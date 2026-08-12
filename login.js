@@ -50,10 +50,13 @@
         ? "change-password.html"
         : (next && /\.html/.test(next) ? next : landingFor(data.user.role));
     } catch (err) {
-      const msg = err.data?.detail
+      let msg = err.data?.detail
         || (Array.isArray(err.data?.non_field_errors) && err.data.non_field_errors[0])
         || err.message
         || "Sign-in failed.";
+      if (msg === "Failed to fetch" || err.name === "TypeError") {
+        msg = "Cannot reach the API. The backend may be down (check pm2 / port 8087).";
+      }
       fail(typeof msg === "string" ? msg : "Incorrect username or password.");
       if (submit) {
         submit.disabled = false;
