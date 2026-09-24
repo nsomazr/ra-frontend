@@ -1,33 +1,50 @@
-/* Password change against the Django REST API. Requires login. */
+/* Change password via Django JWT API. */
 (() => {
   const form = document.querySelector("#change");
   const error = document.querySelector("#error");
   if (!form) return;
 
-  (async () => {
-    if (!(await AssessAPI.ensureAuth())) return;
+  const fail = (message) => {
+    error.textContent = message;
+    error.classList.remove("hidden");
+  };
 
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      error.classList.add("hidden");
-      if (form.password.value !== form.confirm.value) {
-        error.textContent = "Passwords do not match.";
-        error.classList.remove("hidden");
-        return;
-      }
-      try {
-        const data = await AssessAPI.changePassword({
-          current_password: form.current?.value || "",
-          new_password: form.password.value,
-        });
-        AssessAPI.tokens.set({ access: data.access, refresh: data.refresh });
-        if (data.user) AssessAPI.rememberUser(data.user);
-        const role = data.user?.role || AssessAPI.session.get()?.roleCode;
-        location.href = role === "ADMIN" ? "admin.html" : "dashboard.html";
-      } catch (err) {
-        error.textContent = AssessAPI.friendlyError(err, "Could not update your password. Please try again.");
-        error.classList.remove("hidden");
-      }
-    };
+  (async () => {
+    if (typeof AssessAPI === "undefined" || !AssessAPI.tokens.get()?.access) {
+      location.replace("login.html");
+      return;
+    }
+    try {
+      await AssessAPI.me();
+    } catch {
+      AssessAPI.logout(true);
+    }
   })();
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    error.classList.add("hidden");
+    if (form.password.value !== form.confirm.value) return fail("Passwords do not match.");
+    const btn = form.querySelector("button");
+    if (btn) btn.disabled = true;
+    try {
+      const result = await AssessAPI.changePassword({
+        new_password: form.password.value,
+        current_password: "",
+      });
+      if (result.access) {
+        AssessAPI.tokens.set({
+          access: result.access,
+          refresh: result.refresh || AssessAPI.tokens.get()?.refresh,
+        });
+      }
+      if (result.user) AssessAPI.rememberUser(result.user);
+      await P10354.hydrateFromServer();
+      location.href = "dashboard.html";
+    } catch (err) {
+      fail(AssessAPI.friendlyError(err, "Could not update password. Please try again."));
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
 })();

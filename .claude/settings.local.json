@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($sp=\"C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Admin-Downloads-P10354-Field-Audit-Web\\\\c4a667c6-1d61-4bc6-b67f-8a1dc9054508\\\\scratchpad\"; & \"$sp\\\\docx.ps1\" -file \"C:\\\\Users\\\\Admin\\\\Downloads\\\\REET_CBM_P10354_Proposal_FINAL ii \\(1\\).docx\" -out \"$sp\\\\proposal.txt\")",
+      "Bash(echo \"=== SEMIAN first 40 lines ===\")",
+      "Read(//c/Users/Admin/AppData/Local/Temp/claude/C--Users-Admin-Downloads-P10354-Field-Audit-Web/c4a667c6-1d61-4bc6-b67f-8a1dc9054508/scratchpad/**)",
+      "Bash(echo)",
+      "Bash(echo \"=== KICKOFF first 60 lines ===\")",
+      "Bash(grep -v '^[0-9]\\\\{5,\\\\}')"
+    ]
+  }
+}

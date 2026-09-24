@@ -115,13 +115,16 @@
           ${field({ label: "School committee (chair / contact)", value: r.profile.schoolCommittee, locked, onChange: set("schoolCommittee") })}
           ${field({ label: "Teachers (total)", type: "number", value: r.profile.teachersTotal, locked, onChange: set("teachersTotal") })}
           ${field({ label: "Teachers trained in inclusive education", type: "number", value: r.profile.teachersTrainedIE, locked, onChange: set("teachersTrainedIE") })}
-          ${field({ label: "Learners (total)", type: "number", value: r.profile.learners, locked, onChange: set("learners") })}
-          ${field({ label: "Learners with disabilities", type: "number", value: r.profile.learnersWithDisabilities, locked, onChange: set("learnersWithDisabilities") })}
+          ${field({ label: "Students (total)", type: "number", value: r.profile.learners, locked, onChange: set("learners") })}
+          ${field({ label: "Students with disabilities", type: "number", value: r.profile.learnersWithDisabilities, locked, onChange: set("learnersWithDisabilities") })}
           ${field({ label: "Of which girls", type: "number", value: r.profile.girlsWithDisabilities, locked, onChange: set("girlsWithDisabilities") })}
           ${field({ label: "GPS coordinates", value: r.profile.gps, placeholder: "-6.8235, 39.2695", locked, onChange: set("gps") })}
           ${field({ label: "Visit start date", type: "date", value: r.profile.visitDate, locked, onChange: set("visitDate") })}
           ${field({ label: "Visit end date", type: "date", value: r.profile.visitEndDate, locked, onChange: set("visitEndDate") })}
           ${field({ label: "School roster confirmed with district?", type: "select", options: F.scales.yesNo, value: r.profile.rosterConfirmed, locked, onChange: set("rosterConfirmed") })}
+        </div>
+        <div class="notice">
+          <b>Student definition:</b> “Students (total)” refers to all enrolled students recorded for this school. “Students with disabilities” is a subset of the total student population and should be entered separately.
         </div>
         ${field({ label: "Roster / naming note", type: "textarea", value: r.profile.rosterNote, wide: true, locked, onChange: set("rosterNote") })}
       </section>
@@ -130,7 +133,7 @@
         <h2>2025 accessibility audit baseline</h2>
         ${UI.reference([
           { label: "Enrolment", text: s.pupils ? `${s.pupils} pupils (${s.pupilsMale} male, ${s.pupilsFemale} female)` : "" },
-          { label: "Children with disabilities", text: s.learnersWithDisabilities ? `${s.learnersWithDisabilities} (${s.cwdMale} male, ${s.cwdFemale} female) · ${s.disabilityCategories}` : "" },
+          { label: "Students with disabilities", text: s.learnersWithDisabilities ? `${s.learnersWithDisabilities} (${s.cwdMale} male, ${s.cwdFemale} female) · ${s.disabilityCategories}` : "" },
           { label: "Data note", text: s.dataNote },
           { label: "Name variant", text: s.nameVariant },
           { label: "ESRAC", text: s.esrac },
@@ -162,7 +165,9 @@
         fields: [
           field({ label: "Regional target (confirm)", value: x.regionalTarget, locked, onChange: set("regionalTarget") }),
           field({ label: "Achievement (0-4/NV)", type: "select", options: [{ value: "", label: "—" }, ...F.scales.rating], value: x.achievement, locked, onChange: set("achievement") }),
+          UI.scoreExplanation(x.achievement),
           field({ label: "Quality (0-4/NV)", type: "select", options: [{ value: "", label: "—" }, ...F.scales.rating], value: x.quality, locked, onChange: set("quality") }),
+          UI.scoreExplanation(x.quality),
           field({ label: "Evidence strength", type: "select", options: F.scales.evidenceStrength, value: x.evidenceStrength, locked, onChange: set("evidenceStrength") }),
           field({ label: "Key finding / gap", type: "textarea", value: x.finding, locked, onChange: set("finding") }),
           field({ label: "Recommendation", type: "textarea", value: x.recommendation, locked, onChange: set("recommendation") }),
@@ -619,5 +624,9 @@
     UI.restore(state, host);
   }
 
-  UI.boot(render);
+    (async () => {
+    if (!(await UI.gateAuth())) return;
+    UI.chrome();
+  render();
+  })();
 })();

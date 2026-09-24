@@ -10,10 +10,31 @@
   const { esc, field, button, recordCard, register, tabs, notice, pill, ratingPill } = UI;
 
   const params = new URLSearchParams(location.search);
-  let regionId = (params.get("region") || F.regions.find((r) => r.active).id).toUpperCase();
+  const REGION_SESSION_KEY = "p10354-programme-region";
+
+  function canonicalRegionId(value) {
+    const raw = String(value || "").trim().toUpperCase();
+    if (!raw) return F.regions.find((r) => r.active)?.id || F.regions[0].id;
+    const byId = F.regions.find((r) => r.id === raw);
+    if (byId) return byId.id;
+    const byName = F.regions.find((r) => r.name.toUpperCase() === raw);
+    return byName ? byName.id : (F.regions.find((r) => r.active)?.id || F.regions[0].id);
+  }
+
+  function readStoredRegion() {
+    try { return sessionStorage.getItem(REGION_SESSION_KEY); } catch { return null; }
+  }
+
+  function persistRegion(value) {
+    try { sessionStorage.setItem(REGION_SESSION_KEY, value); } catch {}
+  }
+
+  const initialRegion = canonicalRegionId(params.get("region") || readStoredRegion());
+  let regionId = initialRegion;
+  persistRegion(regionId);
   let tab = params.get("tab") || "reconciliation";
 
-  const region = () => F.regions.find((r) => r.id === regionId);
+  const region = () => F.regions.find((r) => r.id === regionId) || F.regions.find((r) => r.active) || F.regions[0];
 
   /* Live instances, for the same reason as the school report: the form mutates
      an object and then commits it, so it must be the object storage holds. */
@@ -41,7 +62,8 @@
   }
 
   function syncUrl() {
-    history.replaceState({}, "", `programme.html?region=${regionId}&tab=${tab}`);
+    persistRegion(regionId);
+    history.replaceState({}, "", `programme.html?region=${encodeURIComponent(regionId)}&tab=${encodeURIComponent(tab)}`);
   }
 
   /* --- Header ------------------------------------------------------------- */
@@ -59,9 +81,19 @@
         <div class="fieldgrid">
           ${field({ label: "Region", type: "select", value: regionId,
             options: F.regions.map((x) => ({ value: x.id, label: `${x.name}${x.active ? "" : " (inactive)"}` })),
-            onChange: (v) => { regionId = v; syncUrl(); render(); window.scrollTo(0, 0); } })}
+            onChange: (v) => {
+              const nextRegion = canonicalRegionId(v);
+              if (nextRegion === regionId) return;
+              regionId = nextRegion;
+              currentProgramme = null;
+              persistRegion(regionId);
+              syncUrl();
+              render();
+              window.scrollTo(0, 0);
+            } })}
         </div>
         <div class="summary">
+          <span><b>Selected region:</b> ${esc(r.name)}</span>
           <span><b>${rollup.started}/${rollup.schools}</b> school reports started</span>
           <span><b>${rollup.submitted}</b> submitted</span>
           <span><b>${rollup.assessed}/${rollup.questions}</b> questions assessed</span>
@@ -455,5 +487,9 @@
     UI.restore(state, host);
   }
 
-  UI.boot(render);
+    (async () => {
+    if (!(await UI.gateAuth())) return;
+    UI.chrome();
+  render();
+  })();
 })();

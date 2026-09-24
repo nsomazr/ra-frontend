@@ -77,6 +77,10 @@ enforced only in the browser is not a control.
 7. **Evidence is never deleted in the field.** Detaching an evidence item removes the
    reference from the report; the blob stays in the local sync queue.
 
+## User-feedback update — September 2026
+
+The Programme Workbook now persists the selected region in the current browser session and treats the URL selection as authoritative when supplied. Region names are normalised by ID/name, and switching regions clears the in-memory workbook instance so data from a previous region cannot remain displayed after a selection change. The assessment interface uses **Students** as the user-facing term and explicitly defines students with disabilities as a subset of the total student population.
+
 ## Scope: the regions question, resolved
 
 The proposal names **Mbeya, Songwe and Katavi**. Three CST/CBM documents — the 2025
@@ -148,3 +152,19 @@ records without touching anything already entered.
 
 Asset URLs carry a `?v=` version so a field tablet picks up an update instead of running
 a cached copy of the previous release. Bump it on every deployment.
+
+## Included server/API synchronization service (2026-09-24)
+
+The current package now includes a Node.js server under `server/server.js`. It serves the web application and exposes the synchronization API used by the offline field client.
+
+- `GET /api/health` — service health and current server version.
+- `POST /api/sync/push` — uploads the local project/report/programme/consent snapshot.
+- `POST /api/sync/pull` — retrieves the current server snapshot.
+- `POST /api/evidence/:id` — uploads evidence files saved during fieldwork.
+- `GET /api/evidence` and `GET /api/evidence/:id` — lists/downloads server evidence.
+
+The browser client automatically attempts synchronization when the device comes online, every 60 seconds, after saved changes, and when the user clicks the sync status button. The server keeps five recent state backups and writes synchronization events to `server/data/audit.jsonl`.
+
+The sync service uses record-level reconciliation based on `updatedAt` when more than one device has changed data. The client shows sync errors and pending changes rather than silently discarding them.
+
+For deployment, run the included `start-server.bat` on Windows or `node server/server.js`. Set `P10354_API_KEY` and use HTTPS/reverse-proxy authentication for a protected production deployment.

@@ -1,59 +1,61 @@
-/* ============================================================================
-   Sign-in against the Django REST API (JWT).
-   All assessment pages require this login.
-============================================================================ */
+/* JWT sign-in against ra-backend, then hydrate local cache from SQLite sync. */
 (() => {
   const form = document.querySelector("#login");
   const error = document.querySelector("#error");
-  const submit = form?.querySelector('button[type="submit"]');
-
   if (!form) return;
-
-  const landingFor = (role) =>
-    role === "ADMIN" ? "admin.html"
-      : role === "TEAM_LEADER" ? "review.html"
-        : "dashboard.html";
-
-  (async () => {
-    if (!AssessAPI.tokens.get()?.access) return;
-    try {
-      const user = await AssessAPI.me();
-      AssessAPI.rememberUser(user);
-      const next = new URLSearchParams(location.search).get("next");
-      if (user.must_change_password) location.replace("change-password.html");
-      else if (next && /\.html/.test(next)) location.replace(next);
-      else location.replace(landingFor(user.role));
-    } catch {
-      AssessAPI.logout(false);
-    }
-  })();
 
   const fail = (message) => {
     error.textContent = message;
     error.classList.remove("hidden");
   };
 
+  const landingFor = (user) => {
+    const role = user?.role || user?.roleCode || "";
+    if (role === "ADMIN" || role === "System Administrator") return "admin.html";
+    if (role === "TEAM_LEADER" || /Team Leader/i.test(user?.role_label || "")) return "review.html";
+    return "dashboard.html";
+  };
+
+  // Already signed in → skip login
+  (async () => {
+    if (!AssessAPI.tokens.get()?.access) return;
+    try {
+      const user = await AssessAPI.me();
+      AssessAPI.rememberUser(user);
+      if (user.must_change_password) {
+        location.replace("change-password.html");
+        return;
+      }
+      await P10354.hydrateFromServer();
+      const params = new URLSearchParams(location.search);
+      location.replace(params.get("next") || landingFor(user));
+    } catch {
+      /* stay on login */
+    }
+  })();
+
   form.onsubmit = async (e) => {
     e.preventDefault();
     error.classList.add("hidden");
-    if (submit) {
-      submit.disabled = true;
-      submit.textContent = "Signing in…";
-    }
+    const username = form.username.value.trim();
+    const password = form.password.value;
+    const btn = form.querySelector("button[type=submit]");
+    if (btn) btn.disabled = true;
     try {
-      const data = await AssessAPI.login(form.username.value.trim(), form.password.value);
-      AssessAPI.tokens.set({ access: data.access, refresh: data.refresh });
-      AssessAPI.rememberUser(data.user);
-      const next = new URLSearchParams(location.search).get("next");
-      location.href = data.user.must_change_password
-        ? "change-password.html"
-        : (next && /\.html/.test(next) ? next : landingFor(data.user.role));
-    } catch (err) {
-      fail(AssessAPI.friendlyError(err, "Unable to sign in. Please try again."));
-      if (submit) {
-        submit.disabled = false;
-        submit.textContent = "Sign in";
+      const result = await AssessAPI.login(username, password);
+      AssessAPI.tokens.set({ access: result.access, refresh: result.refresh });
+      AssessAPI.rememberUser(result.user);
+      if (result.user?.must_change_password) {
+        location.href = "change-password.html";
+        return;
       }
+      await P10354.hydrateFromServer();
+      const params = new URLSearchParams(location.search);
+      location.href = params.get("next") || landingFor(result.user);
+    } catch (err) {
+      fail(AssessAPI.friendlyError(err, "Sign-in failed. Check your details and try again."));
+    } finally {
+      if (btn) btn.disabled = false;
     }
   };
 })();

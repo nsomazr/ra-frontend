@@ -288,5 +288,9 @@
     UI.restore(state, host);
   }
 
-  UI.boot(render);
+    (async () => {
+    if (!(await UI.gateAuth())) return;
+    UI.chrome();
+  render();
+  })();
 })();

@@ -41,7 +41,9 @@ const UI = (() => {
 
   /* --- Page chrome -------------------------------------------------------- */
   const NAV = [
-    { id: "dashboard", href: "dashboard.html", label: "Field Dashboard" },
+    { id: "dashboard", href: "dashboard.html", label: "Command Centre" },
+    { id: "actions", href: "actions.html", label: "Action Tracker" },
+    { id: "report", href: "executive-report.html", label: "Executive Report" },
     { id: "assessment", href: "school-assessment.html", label: "School Assessment" },
     { id: "programme", href: "programme.html", label: "Programme Workbook" },
     { id: "consent", href: "consent.html", label: "Consent & Assent" },
@@ -52,59 +54,52 @@ const UI = (() => {
   function chrome() {
     const host = $("#chrome");
     if (!host) return;
-    if (!AssessAPI.requireAuth()) return;
-
     const page = host.dataset.page;
     const subtitle = host.dataset.subtitle || "External Programmatic Assessment field system";
-    const session = AssessAPI.session.get();
-    const label = session?.username || (session?.role || "Account").split("/")[0].trim();
-    const isAdmin = session?.roleCode === "ADMIN" || /administrator/i.test(session?.role || "");
-    const isViewer = session?.roleCode === "CBM_VIEWER" || /cbm viewer/i.test(session?.role || "");
-    document.body.classList.toggle("view-only", !!isViewer);
-
-    const nav = NAV.filter((n) => {
-      if (n.id === "admin") return isAdmin;
-      if (isViewer && (n.id === "admin")) return false;
-      return true;
-    });
-
-    const viewBanner = isViewer
-      ? `<div class="view-only-banner" role="status">View only — you can browse assessment data but cannot edit or submit.</div>`
-      : "";
-
+    const session = (typeof AssessAPI !== "undefined" && AssessAPI.session?.get?.()) || (window.P10354 && P10354.session.get()) || null;
+    const who = session?.username || session?.role || "";
     host.innerHTML = `
-      <div class="top">
+      <header class="top">
         <div class="topin">
-          <div class="brand">
-            <b>REET · CBM ${esc(F.meta.project)}</b>
-            <small>${esc(subtitle)}</small>
-          </div>
+          <a class="brand" href="dashboard.html" aria-label="REET P10354 Command Centre">
+            <img src="assets/reet-logo.png" alt="REET – Collaborative. Sustainable. Transformative.">
+            <span class="brand-accent" aria-hidden="true"></span>
+            <span class="brand-copy">
+              <b>P10354 Field Assessment System</b>
+              <small>${esc(subtitle)}</small>
+            </span>
+          </a>
           <div class="top-actions">
-            <span id="sync" class="online">Checking sync…</span>
-            <span class="pill account-pill" title="Signed in">${esc(label)}${isViewer ? " · view" : ""}</span>
-            <button type="button" class="btn small secondary" id="signOutBtn">Sign out</button>
+            <span class="project-tag">CBM · ${esc(F.meta.project)}</span>
+            ${who ? `<span class="help" style="margin:0">${esc(who)}</span>` : ""}
+            <button id="sync" class="online sync-button" type="button" title="Synchronize saved work">Checking sync…</button>
+            <button id="logout" class="btn secondary small" type="button">Sign out</button>
           </div>
         </div>
-        <nav class="nav" aria-label="Primary">${nav.map((n) =>
-          `<a class="${n.id === page ? "active" : ""}" href="${n.href}">${esc(n.label)}</a>`).join("")}</nav>
-      </div>
-      ${viewBanner}`;
-    syncBadge();
-    const out = $("#signOutBtn");
-    if (out) out.onclick = () => AssessAPI.logout(true);
-
-    // Viewers cannot open administration
-    if (isViewer && page === "admin") {
-      location.replace("dashboard.html");
+        <div class="nav-band">
+          <nav class="nav">${NAV.map((n) =>
+            `<a class="${n.id === page ? "active" : ""}" href="${n.href}">${esc(n.label)}</a>`).join("")}</nav>
+        </div>
+      </header>`;
+    const logoutBtn = $("#logout");
+    if (logoutBtn) {
+      logoutBtn.onclick = () => {
+        if (typeof AssessAPI !== "undefined") AssessAPI.logout(true);
+        else { P10354.session.clear(); location.replace("login.html"); }
+      };
     }
+    syncBadge();
   }
 
-  /** Gate the page: require login, paint chrome, then run the page callback. */
-  async function boot(start) {
-    const ok = await AssessAPI.ensureAuth();
-    if (!ok) return;
-    chrome();
-    if (typeof start === "function") await start();
+  async function gateAuth() {
+    if (typeof AssessAPI === "undefined") return true;
+    const user = await AssessAPI.ensureAuth();
+    if (!user) return false;
+    if (user.must_change_password) {
+      location.replace("change-password.html");
+      return false;
+    }
+    return true;
   }
 
   function syncBadge() {
@@ -112,11 +107,33 @@ const UI = (() => {
     if (!el) return;
     const paint = () => {
       const online = navigator.onLine;
-      el.textContent = online ? "Online · sync ready" : "Offline · held locally";
-      el.className = online ? "online" : "online offline";
+      const pending = (window.P10354 && typeof P10354.pendingSyncCount === "function") ? P10354.pendingSyncCount() : 0;
+      const state = (window.P10354 && typeof P10354.getSyncState === "function") ? P10354.getSyncState() : {};
+      if (!online) {
+        el.textContent = `Offline · saved on device${pending ? ` · ${pending} pending` : ""}`;
+        el.className = "online offline sync-button";
+      } else if (state.status === "SYNCING") {
+        el.textContent = "Syncing…";
+        el.className = "online sync-button";
+      } else if (state.status === "SYNC ERROR") {
+        el.textContent = `Sync error${pending ? ` · ${pending} pending` : ""}`;
+        el.className = "online offline sync-button";
+      } else {
+        el.textContent = `Online · ${state.lastSyncAt ? "synced" : "ready"}${pending ? ` · ${pending} pending` : ""}`;
+        el.className = "online sync-button";
+      }
+    };
+    el.onclick = async () => {
+      if (!navigator.onLine || typeof P10354?.syncNow !== "function") return;
+      el.textContent = "Syncing…";
+      await P10354.syncNow();
+      paint();
     };
     addEventListener("online", paint);
     addEventListener("offline", paint);
+    addEventListener("p10354-data-saved", paint);
+    addEventListener("p10354-sync-state", paint);
+    addEventListener("p10354-sync-complete", paint);
     paint();
   }
 
@@ -130,6 +147,12 @@ const UI = (() => {
     if (!value) return `<span class="pill">—</span>`;
     if (value === "NV") return `<span class="pill nv">NV</span>`;
     return `<span class="pill r${value}">${esc(value)}</span>`;
+  }
+
+  function scoreExplanation(value) {
+    const item = F.scales.rating.find((r) => String(r.value) === String(value));
+    if (!item) return `<div class="score-help"><b>Explain this score:</b> No score recorded yet.</div>`;
+    return `<div class="score-help"><b>Explain this score:</b> ${esc(item.label)}. ${esc(item.help)}</div>`;
   }
 
   function options(list, current) {
@@ -288,8 +311,8 @@ const UI = (() => {
   }
 
   return {
-    $, $$, esc, reset, bind, wire, chrome, boot, syncBadge, pill, ratingPill, options,
-    field, button, reference, recordCard, register, tabs, notice,
+    $, $$, esc, reset, bind, wire, chrome, syncBadge, gateAuth, pill, ratingPill, options,
+    field, button, reference, recordCard, register, tabs, notice, scoreExplanation,
     toCsv, saveCsv, downloadCsv, slug, snapshot, restore,
   };
 })();

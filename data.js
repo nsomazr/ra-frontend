@@ -8,7 +8,13 @@
 const P10354 = (() => {
   const KEY = "p10354-school-report-system-v1";
   const SESSION_KEY = "p10354-session";
-  const SCHEMA_VERSION = 4;
+  const SYNC_QUEUE_KEY = "p10354-sync-queue";
+  const SYNC_STATE_KEY = "p10354-sync-state";
+  const SYNC_CONFIG_KEY = "p10354-sync-config";
+  const SCHEMA_VERSION = 5;
+  const DEFAULT_API_BASE = "http://127.0.0.1:8087/api";
+  let syncTimer = null;
+  let syncBusy = false;
   const F = FRAMEWORK;
 
   const now = () => new Date().toISOString();
@@ -163,13 +169,31 @@ const P10354 = (() => {
      discard field data we park the old reports under `legacy` so the Team
      Leader can still read them, and start clean records on the new model. */
   function migrate(raw, base) {
+    const sourceVersion = raw.schemaVersion || raw.systemVersion || 1;
+    // Version 4 already uses the current report/programme structure. Version 5
+    // only adds the local change queue, so preserve all existing records.
+    if (sourceVersion >= 4) {
+      const migrated = {
+        ...base, ...raw,
+        schemaVersion: SCHEMA_VERSION,
+        consents: raw.consents || {},
+        users: (raw.users || raw.agents || []).length ? (raw.users || raw.agents) : base.users,
+        settings: { ...base.settings, ...(raw.settings || {}) },
+        project: raw.project || base.project,
+        reports: raw.reports || {},
+        programmes: raw.programmes || {},
+        legacy: raw.legacy || null,
+      };
+      localStorage.setItem(KEY, JSON.stringify(migrated));
+      return migrated;
+    }
     const migrated = {
       ...base,
       consents: raw.consents || {},
       users: (raw.users || raw.agents || []).length ? (raw.users || raw.agents) : base.users,
       settings: { ...base.settings, ...(raw.settings || {}) },
       legacy: raw.reports && Object.keys(raw.reports).length
-        ? { migratedAt: now(), fromVersion: raw.schemaVersion || raw.systemVersion || 1, reports: raw.reports }
+        ? { migratedAt: now(), fromVersion: sourceVersion, reports: raw.reports }
         : null,
     };
     save(migrated);
@@ -179,7 +203,251 @@ const P10354 = (() => {
   function save(db) {
     db.schemaVersion = SCHEMA_VERSION;
     localStorage.setItem(KEY, JSON.stringify(db));
+    try { window.dispatchEvent(new Event("p10354-data-saved")); } catch {}
     return db;
+  }
+
+  function getSyncConfig() {
+    let cfg = {};
+    try { cfg = JSON.parse(localStorage.getItem(SYNC_CONFIG_KEY) || "{}"); } catch {}
+    const globalCfg = window.P10354_SYNC_CONFIG || {};
+    const assess = window.ASSESS_CONFIG || {};
+    const apiBase = String(
+      cfg.apiBase
+      || globalCfg.apiBase
+      || assess.apiBase
+      || (assess.apiUrl ? `${String(assess.apiUrl).replace(/\/$/, "")}/api` : "")
+      || DEFAULT_API_BASE
+    ).replace(/\/$/, "");
+    const jwt = (typeof AssessAPI !== "undefined" && AssessAPI.tokens?.get?.()) || null;
+    return {
+      apiBase,
+      token: String(cfg.token || globalCfg.token || ""),
+      access: jwt?.access || "",
+    };
+  }
+
+  function getSyncState() {
+    try { return JSON.parse(localStorage.getItem(SYNC_STATE_KEY) || "{}"); } catch { return {}; }
+  }
+
+  function setSyncState(value) {
+    localStorage.setItem(SYNC_STATE_KEY, JSON.stringify(value || {}));
+    try { window.dispatchEvent(new Event("p10354-sync-state")); } catch {}
+  }
+
+  function updateQueue(status) {
+    let queue = [];
+    try { queue = JSON.parse(localStorage.getItem(SYNC_QUEUE_KEY) || "[]"); } catch {}
+    const next = queue.map((item) => item.status === "PENDING" ? { ...item, status } : item);
+    localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(next.slice(-500)));
+    try { window.dispatchEvent(new Event("p10354-data-saved")); } catch {}
+  }
+
+  function buildSyncSnapshot() {
+    const db = load();
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      project: db.project || null,
+      reports: db.reports || {},
+      programmes: db.programmes || {},
+      consents: db.consents || {},
+      settings: db.settings || null,
+    };
+  }
+
+  function mergeServerSnapshot(snapshot) {
+    if (!snapshot) return load();
+    const db = load();
+    if (snapshot.project) {
+      db.project = {
+        ...(db.project || makeProject()),
+        ...snapshot.project,
+        reconciliation: {
+          ...((db.project && db.project.reconciliation) || {}),
+          ...(snapshot.project.reconciliation || {}),
+        },
+      };
+    }
+    if (snapshot.reports) {
+      db.reports = { ...(db.reports || {}), ...snapshot.reports };
+    }
+    if (snapshot.programmes) {
+      db.programmes = { ...(db.programmes || {}), ...snapshot.programmes };
+    }
+    if (snapshot.consents) {
+      db.consents = { ...(db.consents || {}), ...snapshot.consents };
+    }
+    const settingsSrc = snapshot.settings || snapshot.project?.settings;
+    if (settingsSrc) {
+      db.settings = { ...db.settings, ...settingsSrc };
+    }
+    save(db);
+    return db;
+  }
+
+  async function apiRequest(path, options = {}) {
+    const cfg = getSyncConfig();
+    const headers = { "Content-Type": "application/json", Accept: "application/json", ...(options.headers || {}) };
+    if (cfg.access) headers.Authorization = `Bearer ${cfg.access}`;
+    else if (cfg.token) headers["X-P10354-API-Key"] = cfg.token;
+    let suffix = path.startsWith("/") ? path : `/${path}`;
+    if (!suffix.endsWith("/") && !suffix.includes("?")) suffix += "/";
+    const response = await fetch(`${cfg.apiBase}${suffix}`, { ...options, headers });
+    let body = null;
+    try { body = await response.json(); } catch {}
+    if (!response.ok) {
+      if (response.status === 401 && typeof AssessAPI !== "undefined") {
+        AssessAPI.logout(true);
+      }
+      const message = body?.error || body?.detail || `Sync request failed (${response.status})`;
+      throw new Error(typeof message === "string" ? message : `Sync request failed (${response.status})`);
+    }
+    return body;
+  }
+
+  function scheduleSync(delay = 1800) {
+    if (syncTimer) clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => { syncTimer = null; syncNow(); }, delay);
+  }
+
+  async function syncEvidenceToServer() {
+    const db = load();
+    const ids = new Set();
+    Object.values(db.reports || {}).forEach((report) => {
+      (report.evidenceRegister || []).forEach((e) => e?.id && ids.add(e.id));
+      Object.values(report.fieldQuestions || {}).forEach((q) => (q.evidence || []).forEach((e) => e?.id && ids.add(e.id)));
+      Object.values(report.accessibility || {}).forEach((a) => (a.evidence || []).forEach((e) => e?.id && ids.add(e.id)));
+    });
+    for (const id of ids) {
+      try {
+        const local = await getFile(id);
+        if (!local?.file) continue;
+        const meta = { ...(local.meta || {}) };
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+          reader.onerror = () => reject(reader.error || new Error("Could not read evidence file"));
+          reader.readAsDataURL(local.file);
+        });
+        await apiRequest(`/evidence/upload/${encodeURIComponent(id)}/`, {
+          method: "POST",
+          body: JSON.stringify({
+            id,
+            name: local.file.name,
+            type: local.file.type,
+            size: local.file.size,
+            meta,
+            base64,
+            schoolId: meta.schoolId || "",
+            reportId: meta.reportId || "",
+          }),
+        });
+      } catch (error) {
+        console.warn("Evidence sync failed", id, error);
+      }
+    }
+  }
+
+  async function syncEvidenceFromServer() {
+    try {
+      const result = await apiRequest("/evidence/upload/");
+      const files = Array.isArray(result.files) ? result.files : [];
+      for (const meta of files) {
+        if (!meta?.id || await getFile(meta.id)) continue;
+        try {
+          const cfg = getSyncConfig();
+          const headers = {};
+          if (cfg.access) headers.Authorization = `Bearer ${cfg.access}`;
+          else if (cfg.token) headers["X-P10354-API-Key"] = cfg.token;
+          const response = await fetch(`${cfg.apiBase}/evidence/download/${encodeURIComponent(meta.id)}/`, { headers });
+          if (!response.ok) continue;
+          const blob = await response.blob();
+          const store = await openStore();
+          await new Promise((resolve, reject) => {
+            const tx = store.transaction("files", "readwrite");
+            tx.objectStore("files").put({ id: meta.id, file: blob, meta: meta.meta || {} });
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+          });
+        } catch (error) {
+          console.warn("Evidence download failed", meta.id, error);
+        }
+      }
+    } catch (error) {
+      console.warn("Evidence index sync failed", error);
+    }
+  }
+
+  async function hydrateFromServer() {
+    if (!navigator.onLine) return { ok: false, reason: "offline" };
+    const cfg = getSyncConfig();
+    if (!cfg.access && !cfg.token) return { ok: false, reason: "not authenticated" };
+    try {
+      const result = await apiRequest("/sync/pull/", { method: "POST", body: "{}" });
+      mergeServerSnapshot(result.snapshot);
+      setSyncState({
+        serverVersion: result.serverVersion || 0,
+        status: "SYNCED",
+        lastSyncAt: now(),
+        deviceId: getDeviceId(),
+      });
+      try { window.dispatchEvent(new Event("p10354-sync-complete")); } catch {}
+      return { ok: true, ...result };
+    } catch (error) {
+      setSyncState({ ...getSyncState(), status: "SYNC ERROR", lastError: error.message, deviceId: getDeviceId() });
+      return { ok: false, reason: error.message };
+    }
+  }
+
+  async function syncNow() {
+    if (syncBusy || !navigator.onLine) return { ok: false, reason: "offline" };
+    const cfg = getSyncConfig();
+    if (!cfg.access && !cfg.token) return { ok: false, reason: "not authenticated" };
+    syncBusy = true;
+    setSyncState({ ...getSyncState(), status: "SYNCING", startedAt: now() });
+    try {
+      const state = getSyncState();
+      const result = await apiRequest("/sync/push/", {
+        method: "POST",
+        body: JSON.stringify({
+          deviceId: getDeviceId(),
+          baseVersion: Number(state.serverVersion || 0),
+          snapshot: buildSyncSnapshot(),
+        }),
+      });
+      mergeServerSnapshot(result.snapshot);
+      updateQueue("SYNCED");
+      await syncEvidenceToServer();
+      await syncEvidenceFromServer();
+      setSyncState({ serverVersion: result.serverVersion || 0, status: "SYNCED", lastSyncAt: now(), deviceId: getDeviceId(), conflicts: result.conflicts || [] });
+      try { window.dispatchEvent(new Event("p10354-sync-complete")); } catch {}
+      return { ok: true, ...result };
+    } catch (error) {
+      setSyncState({ ...getSyncState(), status: "SYNC ERROR", lastError: error.message, deviceId: getDeviceId() });
+      try { window.dispatchEvent(new Event("p10354-sync-complete")); } catch {}
+      return { ok: false, reason: error.message };
+    } finally { syncBusy = false; }
+  }
+
+  function getDeviceId() {
+    const key = "p10354-device-id";
+    let id = localStorage.getItem(key);
+    if (!id) { id = uid("DEV"); localStorage.setItem(key, id); }
+    return id;
+  }
+
+  function enqueueSync(event, actor, recordType, recordId) {
+    let queue = [];
+    try { queue = JSON.parse(localStorage.getItem(SYNC_QUEUE_KEY) || "[]"); } catch {}
+    queue.push({ id: uid("SYNC"), at: now(), event, actor: actor || "System", recordType, recordId, status: "PENDING" });
+    // Keep only the most recent local change history needed for later sync.
+    localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(queue.slice(-500)));
+    try { window.dispatchEvent(new Event("p10354-data-saved")); } catch {}
+  }
+
+  function pendingSyncCount() {
+    try { return JSON.parse(localStorage.getItem(SYNC_QUEUE_KEY) || "[]").filter((x) => x.status === "PENDING").length; } catch { return 0; }
   }
 
   /* --- Schools / lookups -------------------------------------------------- */
@@ -233,6 +501,8 @@ const P10354 = (() => {
     if (report.history.length > 400) report.history.length = 400;
     db.reports[report.schoolId] = report;
     save(db);
+    enqueueSync(event || "Report saved", actor || "Field Auditor", "report", report.schoolId);
+    scheduleSync();
     return report;
   }
 
@@ -257,6 +527,8 @@ const P10354 = (() => {
     if (event) record.history.unshift({ at: now(), event, actor: actor || "Team Leader" });
     db.project = record;
     save(db);
+    enqueueSync(event || "Project saved", actor || "System", "project", "PROJECT");
+    scheduleSync();
     return record;
   }
 
@@ -289,6 +561,8 @@ const P10354 = (() => {
     if (event) record.history.unshift({ at: now(), event, actor: actor || "Team Leader" });
     db.programmes[record.regionId] = record;
     save(db);
+    enqueueSync(event || "Programme workbook saved", actor || "System", "programme", record.regionId);
+    scheduleSync();
     return record;
   }
 
@@ -355,5 +629,17 @@ const P10354 = (() => {
     putFile, getFile, detachEvidence,
     users, activeUsers, session,
     now, uid,
+    getDeviceId, getSyncConfig, getSyncState, pendingSyncCount, syncNow, scheduleSync, hydrateFromServer,
   };
 })();
+
+// Sync to Django/SQLite when authenticated and online.
+const maybeSync = () => {
+  if (!navigator.onLine) return;
+  const tokens = (typeof AssessAPI !== "undefined" && AssessAPI.tokens?.get?.()) || null;
+  if (!tokens?.access) return;
+  P10354.syncNow();
+};
+setTimeout(maybeSync, 800);
+addEventListener("online", maybeSync);
+setInterval(maybeSync, 60000);

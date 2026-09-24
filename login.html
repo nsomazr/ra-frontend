@@ -3,55 +3,37 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Admin sign in · REET CBM P10354</title>
-  <link rel="stylesheet" href="styles.css?v=13">
+  <title>Sign in · REET Field Assessment · P10354</title>
+  <link rel="stylesheet" href="styles.css?v=10">
+  <meta name="theme-color" content="#123b5d">
+  <link rel="icon" type="image/png" href="assets/reet-icon.png">
 </head>
-<body class="auth-body">
-  <main class="auth-split">
-    <aside class="auth-hero" aria-hidden="false">
-      <div class="auth-hero-inner">
-        <p class="auth-kicker">REET Limited · CBM Tanzania</p>
-        <h1>P10354</h1>
-        <p class="auth-tagline">Take All My Friends to School</p>
-        <p class="auth-copy">External programmatic assessment for Songwe, Rukwa and Katavi. Sign in to open the field system.</p>
-        <ul class="auth-points">
-          <li>School verification &amp; evidence</li>
-          <li>Programme workbook</li>
-          <li>Consent, review &amp; admin</li>
-        </ul>
+<body>
+  <main class="shell" style="max-width:520px;padding-top:8vh">
+    <section class="card pad hero">
+      <div class="report-header" style="border-bottom:0;margin-bottom:8px">
+        <img src="assets/reet-logo.png" alt="REET – Collaborative. Sustainable. Transformative.">
+        <div class="report-meta"><span class="project-tag">P10354</span></div>
       </div>
-    </aside>
-
-    <section class="auth-panel">
-      <div class="auth-panel-inner">
-        <div class="auth-brand mobile-only">
-          <div class="mark" aria-hidden="true">R</div>
-          <h1>Admin sign in</h1>
-          <p>REET · CBM P10354</p>
-        </div>
-        <div class="auth-brand desktop-only">
-          <h1>Admin sign in</h1>
-          <p>Use your assessment account</p>
-        </div>
-
-        <form id="login" class="auth-form" novalidate>
-          <label class="field">
-            <span>Username</span>
-            <input name="username" autocomplete="username" required placeholder="Username" enterkeyhint="next">
-          </label>
-          <label class="field">
-            <span>Password</span>
-            <input name="password" type="password" autocomplete="current-password" required placeholder="Password" enterkeyhint="go">
-          </label>
-          <p id="error" class="notice red hidden" role="alert"></p>
-          <button class="btn large auth-submit" type="submit">Sign in</button>
-        </form>
-      </div>
+      <p class="label">Field Assessment System</p>
+      <h1>Sign in</h1>
+      <p>Authenticate against the project API. After sign-in, fieldwork continues offline with automatic sync to the server database when you are online.</p>
+      <form id="login">
+        <label class="field"><span>Username</span>
+          <input name="username" type="text" autocomplete="username" required autofocus></label>
+        <label class="field"><span>Password</span>
+          <input name="password" type="password" autocomplete="current-password" required></label>
+        <p id="error" class="notice red hidden" role="alert"></p>
+        <button class="btn large" style="width:100%" type="submit">Sign in</button>
+      </form>
+      <p class="help" style="margin-top:18px">REET Limited · Collaborative. Sustainable. Transformative.</p>
     </section>
   </main>
-
-  <script src="config.js"></script>
-  <script src="api.js?v=13"></script>
-  <script src="login.js?v=13"></script>
+  <script src="/config.js"></script>
+  <script src="api.js?v=10"></script>
+  <script src="framework.js?v=10"></script>
+  <script src="sync-config.js?v=2"></script>
+  <script src="data.js?v=10"></script>
+  <script src="login.js?v=10"></script>
 </body>
 </html>

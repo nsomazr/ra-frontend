@@ -1,0 +1,5 @@
+const CACHE="p10354-shell-v9";
+const ASSETS=["dashboard.html","school-assessment.html","programme.html","actions.html","executive-report.html","consent.html","review.html","admin.html","login.html","change-password.html","index.html","styles.css","assets/reet-logo.png","assets/reet-icon.png","framework.js","data.js","app.js","dashboard.js","assessment.js","programme.js","actions.js","executive-report.js","consent.js","review.js","admin.js","login.js","change-password.js"];
+self.addEventListener("install",e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
+self.addEventListener("activate",e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
+self.addEventListener("fetch",e=>{ if(e.request.method!=="GET") return; e.respondWith(caches.match(e.request).then(cached=>cached||fetch(e.request).then(res=>{const copy=res.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return res;}).catch(()=>caches.match("dashboard.html")))); });

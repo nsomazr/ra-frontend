@@ -180,5 +180,11 @@ const AssessAPI = (() => {
     users: () => request("/users/"),
     createUser: (body) => request("/users/", { method: "POST", body }),
     settings: () => request("/settings/"),
+    syncPush: (body) => request("/sync/push/", { method: "POST", body }),
+    syncPull: () => request("/sync/pull/", { method: "POST", body: {} }),
+    listEvidence: () => request("/evidence/upload/"),
+    uploadEvidence: (id, body) =>
+      request(`/evidence/upload/${encodeURIComponent(id)}/`, { method: "POST", body }),
+    downloadEvidenceUrl: (id) => `${cfg().apiBase}/evidence/download/${encodeURIComponent(id)}/`,
   };
 })();
