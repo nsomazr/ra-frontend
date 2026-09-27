@@ -107,8 +107,6 @@ const UI = (() => {
       return true;
     }
     if (!AssessAPI.tokens.get()?.access) {
-      const session = P10354.session.get();
-      if (session?.auth === "local") return true;
       return AssessAPI.requireAuth();
     }
     const user = await AssessAPI.ensureAuth();

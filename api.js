@@ -179,6 +179,7 @@ const AssessAPI = (() => {
     consents: (params = "") => request(`/consents/${params ? `?${params}` : ""}`),
     users: () => request("/users/"),
     createUser: (body) => request("/users/", { method: "POST", body }),
+    updateUser: (id, body) => request(`/users/${id}/`, { method: "PATCH", body }),
     settings: () => request("/settings/"),
     syncPush: (body) => request("/sync/push/", { method: "POST", body }),
     syncPull: () => request("/sync/pull/", { method: "POST", body: {} }),

@@ -486,10 +486,13 @@ const P10354 = (() => {
     if (!navigator.onLine) return [];
     const cfg = getSyncConfig();
     const params = new URLSearchParams({ ...context, deviceId: getDeviceId() });
-    const headers = cfg.token ? { "X-P10354-API-Key": cfg.token } : {};
+    const headers = { Accept: "application/json" };
+    if (cfg.access) headers.Authorization = `Bearer ${cfg.access}`;
+    else if (cfg.token) headers["X-P10354-API-Key"] = cfg.token;
     try {
-      const response = await fetch(`${cfg.apiBase}/presence?${params.toString()}`, { headers });
-      const body = await response.json();
+      const response = await fetch(`${cfg.apiBase}/presence/?${params.toString()}`, { headers });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) return [];
       return Array.isArray(body.users) ? body.users : [];
     } catch { return []; }
   }

@@ -2,10 +2,8 @@
    Administration — users, school assignments, regions in scope, and the
    submission controls the Team Leader owns.
 
-   Note on passwords: hashing here is SHA-256 in the browser, which is a
-   placeholder for the prototype only. Production must use server-side
-   Argon2id or bcrypt — see architecture.md. The UI says so plainly rather
-   than implying this is a secure store.
+   Users are created and updated through the Django API (SQLite). A local
+   mirror is kept so offline assignment views still work after hydrate.
 ============================================================================ */
 
 (() => {
@@ -13,48 +11,111 @@
   const { esc, pill, notice, button, field, tabs } = UI;
 
   let tab = new URLSearchParams(location.search).get("tab") || "users";
+  let remoteUsers = [];
+  let usersStatus = "";
+  let usersLoading = false;
 
-  async function passwordVerifier(value, iterations = 210000) {
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(value), "PBKDF2", false, ["deriveBits"]);
-    const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations, hash: "SHA-256" }, key, 256);
-    const salt64 = btoa(String.fromCharCode(...salt));
-    const hash64 = btoa(String.fromCharCode(...new Uint8Array(bits)));
-    return `PBKDF2-SHA256$${iterations}$${salt64}$${hash64}`;
+  const ROLE_TO_CODE = {
+    "Team Leader / Senior MEL Specialist": "TEAM_LEADER",
+    "Inclusive Education Specialist": "AUDITOR",
+    "Disability Inclusion Expert": "DISABILITY_INCLUSION",
+    "Financial and Compliance Auditor": "FINANCE_COMPLIANCE",
+    "Procurement and Asset Verification Specialist": "PROCUREMENT",
+    "Research Associate": "RESEARCH_ASSOCIATE",
+    "Data Analyst": "DATA_ANALYST",
+    "Safeguarding Lead": "SAFEGUARDING_LEAD",
+    "System Administrator": "ADMIN",
+    "CBM Viewer": "CBM_VIEWER",
+  };
+
+  function regionIdFromLabel(label) {
+    if (!label || label === "All") return "";
+    const match = F.regions.find((r) => r.name === label || r.id === label);
+    return match ? match.id : String(label).toUpperCase();
   }
 
-  async function provisionServerUser(user) {
+  function regionLabelFromId(id) {
+    if (!id) return "All";
+    const match = F.regions.find((r) => r.id === id);
+    return match ? match.name : id;
+  }
+
+  function mapApiUser(u) {
+    return {
+      id: u.id,
+      name: u.full_name || "",
+      username: u.username,
+      staffId: u.staff_id || "",
+      email: u.email || "",
+      phone: u.phone || "",
+      role: u.role_label || u.role || "",
+      roleCode: u.role || "",
+      region: regionLabelFromId(u.home_region_id),
+      homeRegionId: u.home_region_id || "",
+      schools: Array.isArray(u.assigned_school_ids) ? u.assigned_school_ids : [],
+      active: u.active !== false,
+      lastLogin: u.last_login_at || "",
+      mustChangePassword: !!u.must_change_password,
+    };
+  }
+
+  function mirrorUsersLocally(users) {
+    const d = P10354.load();
+    const byUsername = new Map(users.map((u) => [String(u.username).toLowerCase(), u]));
+    // Keep local-only bootstrap entries that are not on the server yet
+    const kept = (d.users || []).filter((u) => !byUsername.has(String(u.username).toLowerCase()) && u.passwordHash === "INITIAL_BOOTSTRAP_REQUIRED");
+    d.users = [...users.map((u) => ({
+      ...u,
+      passwordHash: (d.users.find((x) => x.id === u.id || String(x.username).toLowerCase() === String(u.username).toLowerCase()) || {}).passwordHash || "",
+    })), ...kept];
+    P10354.save(d);
+  }
+
+  async function loadUsers() {
+    usersLoading = true;
+    usersStatus = "";
+    render();
     try {
-      const cfg = P10354.getSyncConfig();
-      if (!navigator.onLine || !cfg?.apiBase) return;
-      const headers = { "Content-Type": "application/json" };
-      if (cfg.token) headers["X-P10354-API-Key"] = cfg.token;
-      const response = await fetch(`${cfg.apiBase}/admin/users/upsert`, { method: "POST", headers, body: JSON.stringify(user) });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || `Server user provisioning failed (${response.status})`);
-      }
-    } catch (err) { console.warn("Server user provisioning unavailable", err); }
+      if (typeof AssessAPI === "undefined") throw new Error("API client is not loaded.");
+      const raw = await AssessAPI.users();
+      const list = Array.isArray(raw) ? raw : (raw.results || []);
+      remoteUsers = list.map(mapApiUser);
+      mirrorUsersLocally(remoteUsers);
+      usersStatus = "";
+    } catch (err) {
+      remoteUsers = (P10354.load().users || []).map((u) => ({
+        ...u,
+        roleCode: ROLE_TO_CODE[u.role] || u.role || "",
+        schools: u.schools || [],
+      }));
+      usersStatus = AssessAPI?.friendlyError?.(err, err.message || "Could not load users from the server.")
+        || err.message
+        || "Could not load users from the server.";
+    } finally {
+      usersLoading = false;
+      render();
+    }
   }
 
   function apiHeaders(extra = {}) {
     const cfg = P10354.getSyncConfig();
     const headers = { ...extra };
-    if (cfg.token) headers['X-P10354-API-Key'] = cfg.token;
+    if (cfg.access) headers.Authorization = `Bearer ${cfg.access}`;
+    else if (cfg.token) headers["X-P10354-API-Key"] = cfg.token;
     return { cfg, headers };
   }
 
   async function createServerBackup() {
     const { cfg, headers } = apiHeaders();
-    if (!navigator.onLine || !cfg?.apiBase) { alert('The server is not available. Connect to the server first.'); return; }
+    if (!navigator.onLine || !cfg?.apiBase) { alert("The server is not available. Connect to the server first."); return; }
     try {
-      const response = await fetch(`${cfg.apiBase}/admin/backup`, { headers });
-      const body = await response.json();
-      if (!response.ok || !body?.backup) throw new Error(body?.error || `Backup failed (${response.status})`);
-      const blob = new Blob([JSON.stringify(body.backup, null, 2)], { type: 'application/json' });
-      const a = document.createElement('a');
+      const response = await fetch(`${cfg.apiBase}/admin/backup/`, { headers });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body?.backup) throw new Error(body?.error || body?.detail || `Backup failed (${response.status})`);
+      const blob = new Blob([JSON.stringify(body.backup, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `P10354_server_backup_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.json`;
+      a.download = `P10354_server_backup_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     } catch (error) { alert(`Backup failed: ${error.message}`); }
@@ -62,57 +123,64 @@
 
   async function restoreServerBackup(file) {
     if (!file) return;
-    const confirmed = confirm('Restore this server backup? The current server data will first be backed up automatically.');
+    const confirmed = confirm("Restore this server backup? The current server data will first be backed up automatically.");
     if (!confirmed) return;
     try {
       const backup = JSON.parse(await file.text());
-      if (backup?.format !== 'P10354-SERVER-BACKUP-1') throw new Error('This is not a valid P10354 server backup file.');
-      const { cfg, headers } = apiHeaders({ 'Content-Type': 'application/json' });
-      if (!cfg?.apiBase) throw new Error('Server configuration is not available.');
-      const response = await fetch(`${cfg.apiBase}/admin/restore`, { method: 'POST', headers, body: JSON.stringify({ backup }) });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body?.error || `Restore failed (${response.status})`);
+      if (backup?.format !== "P10354-SERVER-BACKUP-1") throw new Error("This is not a valid P10354 server backup file.");
+      const { cfg, headers } = apiHeaders({ "Content-Type": "application/json" });
+      if (!cfg?.apiBase) throw new Error("Server configuration is not available.");
+      const response = await fetch(`${cfg.apiBase}/admin/restore/`, { method: "POST", headers, body: JSON.stringify({ backup }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body?.error || body?.detail || `Restore failed (${response.status})`);
       alert(`Backup restored successfully. Server version: ${body.serverVersion}`);
-      await P10354.pullFromServer();
+      if (typeof P10354.pullFromServer === "function") await P10354.pullFromServer();
       render();
     } catch (error) { alert(`Restore failed: ${error.message}`); }
   }
 
   const db = () => P10354.load();
 
-  function saveDb(mutate, event) {
+  function saveDb(mutate) {
     const d = db();
     mutate(d);
     P10354.save(d);
+    if (typeof P10354.scheduleSync === "function") P10354.scheduleSync();
     render();
+  }
+
+  function usersList() {
+    return remoteUsers.length ? remoteUsers : (db().users || []);
   }
 
   /* --- Tab: users ---------------------------------------------------------- */
   function usersTab() {
-    const d = db();
+    const list = usersList();
 
     const table = `<section class="card">
       <div class="pad section-head">
-        <div><h2>Users</h2></div>
-        <div class="actions">${button("Export user list (CSV)", () => {
-          UI.saveCsv("P10354_Users", UI.toCsv(
-            ["Username", "Name", "Role", "Region", "Assigned schools", "Active", "Last login"],
-            d.users.map((u) => [u.username, u.name, u.role, u.region, (u.schools || []).length, u.active ? "Yes" : "No", u.lastLogin])));
-        }, "btn secondary")}</div>
+        <div><h2>Users</h2><p class="help">Accounts are stored in the project database and can sign in online.</p></div>
+        <div class="actions">
+          ${button("Refresh", () => loadUsers(), "btn secondary")}
+          ${button("Export user list (CSV)", () => {
+            UI.saveCsv("P10354_Users", UI.toCsv(
+              ["Username", "Name", "Role", "Region", "Assigned schools", "Active", "Last login"],
+              list.map((u) => [u.username, u.name, u.role, u.region, (u.schools || []).length, u.active ? "Yes" : "No", u.lastLogin])));
+          }, "btn secondary")}
+        </div>
       </div>
+      ${usersStatus ? notice(esc(usersStatus), "red") : ""}
+      ${usersLoading ? notice("Loading users…") : ""}
       <div class="tablewrap"><table>
         <thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Region</th><th>Schools</th><th>Last login</th><th>Status</th><th></th></tr></thead>
-        <tbody>${d.users.map((u) => `<tr>
+        <tbody>${list.length ? list.map((u) => `<tr>
           <td><b>${esc(u.username)}</b>${u.mustChangePassword ? `<br>${pill("Password change due", "alert")}` : ""}</td>
           <td>${esc(u.name) || "—"}</td><td>${esc(u.role)}</td><td>${esc(u.region)}</td>
           <td>${(u.schools || []).length}</td>
           <td><small>${u.lastLogin ? new Date(u.lastLogin).toLocaleString() : "Never"}</small></td>
           <td>${pill(u.active ? "Active" : "Inactive")}</td>
-          <td>${button(u.active ? "Deactivate" : "Reactivate", () => saveDb((x) => {
-            const user = x.users.find((y) => y.id === u.id);
-            user.active = !user.active;
-          }), "btn secondary small")}</td>
-        </tr>`).join("")}</tbody>
+          <td>${button(u.active ? "Deactivate" : "Reactivate", () => toggleActive(u), "btn secondary small")}</td>
+        </tr>`).join("") : `<tr><td colspan="8" class="empty">No users loaded yet.</td></tr>`}</tbody>
       </table></div>
     </section>`;
 
@@ -123,7 +191,7 @@
           <label class="field"><span>Full name</span><input name="name" required></label>
           <label class="field"><span>Username</span><input name="username" required autocomplete="off"></label>
           <label class="field"><span>Temporary password</span><input name="password" type="password" minlength="12" required autocomplete="new-password">
-            <small class="help">Prototype hashing only — not production credential storage.</small></label>
+            <small class="help">Stored securely on the server. The user must change it at first sign-in.</small></label>
           <label class="field"><span>Role</span><select name="role">${F.teamRoles.map((r) => `<option>${esc(r)}</option>`).join("")}</select></label>
           <label class="field"><span>Region</span><select name="region">${["All", ...F.regions.map((r) => r.name)].map((r) => `<option>${esc(r)}</option>`).join("")}</select></label>
           <label class="field"><span>Email</span><input name="email" type="email"></label>
@@ -135,11 +203,28 @@
             `<option value="${esc(s.id)}">${esc(s.region)} · ${esc(s.name)}</option>`).join("")}</select>
         </label>
         <p id="userError" class="notice red hidden"></p>
-        <button class="btn large">Add user</button>
+        <p id="userOk" class="notice hidden"></p>
+        <button class="btn large" type="submit">Add user</button>
       </form>
     </section>`;
 
     return `<section class="two">${table}${form}</section>`;
+  }
+
+  async function toggleActive(user) {
+    if (!user?.id || typeof AssessAPI === "undefined") {
+      alert("Sign in as an administrator to change account status on the server.");
+      return;
+    }
+    try {
+      const updated = await AssessAPI.updateUser(user.id, { active: !user.active });
+      const mapped = mapApiUser(updated);
+      remoteUsers = remoteUsers.map((u) => (u.id === mapped.id ? mapped : u));
+      mirrorUsersLocally(remoteUsers);
+      render();
+    } catch (err) {
+      alert(AssessAPI.friendlyError(err, "Could not update that account."));
+    }
   }
 
   function wireUserForm() {
@@ -148,32 +233,74 @@
     form.onsubmit = async (e) => {
       e.preventDefault();
       const error = UI.$("#userError");
+      const ok = UI.$("#userOk");
+      error.classList.add("hidden");
+      ok.classList.add("hidden");
       const data = new FormData(form);
-      const d = db();
-      if (d.users.some((u) => u.username.toLowerCase() === String(data.get("username")).toLowerCase())) {
+      const username = String(data.get("username") || "").trim();
+      const password = String(data.get("password") || "");
+      const roleLabel = String(data.get("role") || "");
+      const roleCode = ROLE_TO_CODE[roleLabel] || roleLabel;
+      const regionLabel = String(data.get("region") || "All");
+      const schools = data.getAll("schools").map(String);
+
+      if (!username || !password) {
+        error.textContent = "Username and temporary password are required.";
+        error.classList.remove("hidden");
+        return;
+      }
+      if (password.length < 12) {
+        error.textContent = "Use at least 12 characters for the temporary password.";
+        error.classList.remove("hidden");
+        return;
+      }
+      if (usersList().some((u) => String(u.username).toLowerCase() === username.toLowerCase())) {
         error.textContent = "That username already exists.";
         error.classList.remove("hidden");
         return;
       }
-      const user = {
-        id: P10354.uid("USR"), name: String(data.get("name") || "").trim(),
-        username: String(data.get("username") || "").trim(),
-        passwordHash: await passwordVerifier(String(data.get("password") || "")),
-        staffId: data.get("staffId") || "", email: data.get("email") || "", phone: data.get("phone") || "",
-        role: data.get("role"), region: data.get("region"), schools: data.getAll("schools"),
-        active: true, lastLogin: "", mustChangePassword: true,
-      };
-      d.users.push(user);
-      P10354.save(d);
-      await provisionServerUser(user);
-      render();
+
+      const btn = form.querySelector("button[type=submit]");
+      if (btn) btn.disabled = true;
+      try {
+        if (typeof AssessAPI === "undefined" || !AssessAPI.tokens.get()?.access) {
+          throw new Error("Sign in online as an administrator to create accounts.");
+        }
+        const created = await AssessAPI.createUser({
+          username,
+          password,
+          full_name: String(data.get("name") || "").trim(),
+          staff_id: String(data.get("staffId") || "").trim(),
+          email: String(data.get("email") || "").trim(),
+          phone: String(data.get("phone") || "").trim(),
+          role: roleCode,
+          home_region_id: regionIdFromLabel(regionLabel),
+          must_change_password: true,
+          active: true,
+          assigned_school_ids: schools,
+        });
+        const mapped = mapApiUser(created);
+        remoteUsers = [...remoteUsers.filter((u) => u.id !== mapped.id), mapped]
+          .sort((a, b) => String(a.username).localeCompare(String(b.username)));
+        mirrorUsersLocally(remoteUsers);
+        form.reset();
+        ok.textContent = `User “${mapped.username}” created. They can sign in with the temporary password.`;
+        ok.classList.remove("hidden");
+        render();
+      } catch (err) {
+        error.textContent = AssessAPI?.friendlyError?.(err, err.message || "Could not create user.")
+          || err.message
+          || "Could not create user.";
+        error.classList.remove("hidden");
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     };
   }
 
   /* --- Tab: assignments ---------------------------------------------------- */
   function assignmentsTab() {
-    const d = db();
-    const assignable = d.users.filter((u) => u.active);
+    const assignable = usersList().filter((u) => u.active);
     return `<section class="card">
       <div class="pad"><h2>School assignments</h2></div>
       <div class="tablewrap"><table>
@@ -290,12 +417,11 @@
 
       <section class="card pad">
         <h2>Server backup & restore</h2>
-        <p class="help">Create a backup of the shared project data on the server. Restoring automatically creates a backup of the current server data first. Uploaded evidence files remain on the server during a data restore.</p>
+        <p class="help">Downloads and restores the Django assessment snapshot (reports, programmes, consents, conflicts). User accounts remain in the Django auth database.</p>
         <div class="actions">
           ${button("Create server backup", createServerBackup, "btn secondary")}
           <label class="btn secondary">Restore server backup<input id="serverRestoreFile" type="file" accept="application/json,.json" style="display:none"></label>
         </div>
-        <p class="help">Use this before major data changes or at the end of a fieldwork day.</p>
       </section>
 
       <section class="card pad">
@@ -342,8 +468,9 @@
   }
 
   (async () => {
-  if (!(await UI.gateAuth())) return;
-  UI.chrome();
-  render();
-})();
+    if (!(await UI.gateAuth())) return;
+    UI.chrome();
+    render();
+    await loadUsers();
+  })();
 })();
