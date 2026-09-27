@@ -43,10 +43,20 @@
     return refs;
   }
 
-  async function fetchServerIndex() {
+  function authHeaders() {
     const cfg = P10354.getSyncConfig();
-    const headers = cfg.token ? { 'X-P10354-API-Key': cfg.token } : {};
-    const response = await fetch(`${cfg.apiBase}/evidence`, { headers });
+    const headers = { Accept: "application/json" };
+    if (cfg.access) headers.Authorization = `Bearer ${cfg.access}`;
+    else if (cfg.token) headers["X-P10354-API-Key"] = cfg.token;
+    return { cfg, headers };
+  }
+
+  async function fetchServerIndex() {
+    const { cfg, headers } = authHeaders();
+    if (!cfg.access && !cfg.token) {
+      throw new Error("Sign in again to load team evidence from the server.");
+    }
+    const response = await fetch(`${cfg.apiBase}/evidence/upload/`, { headers });
     if (!response.ok) throw new Error(`Evidence service returned ${response.status}`);
     const body = await response.json();
     return Array.isArray(body.files) ? body.files : [];
@@ -129,9 +139,9 @@
       const row = await P10354.getFile(item.id);
       if (row?.file) return row.file instanceof Blob ? row.file : new Blob([row.file], { type: item.type });
     }
-    const cfg = P10354.getSyncConfig();
-    const headers = cfg.token ? { 'X-P10354-API-Key': cfg.token } : {};
-    const response = await fetch(`${cfg.apiBase}/evidence/${encodeURIComponent(item.id)}`, { headers });
+    const { cfg, headers } = authHeaders();
+    if (!cfg.access && !cfg.token) throw new Error("Sign in again to download server evidence.");
+    const response = await fetch(`${cfg.apiBase}/evidence/download/${encodeURIComponent(item.id)}/`, { headers });
     if (!response.ok) throw new Error(`Unable to retrieve file (${response.status})`);
     return response.blob();
   }
