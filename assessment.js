@@ -15,6 +15,7 @@
   let tab = params.get("tab") || "profile";
 
   const LOCKED_STATUSES = ["SUBMITTED", "UNDER REVIEW", "QA APPROVED", "FINALIZED"];
+  const FINALIZED_STATUS = "FINALIZED";
 
   const school = () => P10354.school(schoolId);
   const settings = () => P10354.load().settings;
@@ -23,6 +24,7 @@
      a fresh object out of localStorage, so the form must mutate and commit the
      same instance — otherwise an edit is written to a copy and thrown away. */
   let current = null;
+  let presenceTimer = null;
   function report() {
     if (!current || current.schoolId !== schoolId) current = P10354.getReport(schoolId);
     return current;
@@ -45,6 +47,26 @@
     if (r.status === "DRAFT") r.status = "IN PROGRESS";
   }
 
+  async function refreshPresence() {
+    const host = document.getElementById("collab-status");
+    if (!host) return;
+    if (!navigator.onLine) { host.innerHTML = `<small class="help">Offline · collaboration status unavailable</small>`; return; }
+    try {
+      await P10354.presencePing({ schoolId, page: "school-assessment", role, tab });
+      const users = await P10354.getPresence({ schoolId });
+      host.innerHTML = users.length
+        ? `<div class="collab-banner"><b>Team members currently working on this school:</b> ${users.map(u => `${esc(u.name)} · ${esc(u.role || "Team member")}${u.tab ? ` · ${esc(u.tab)}` : ""}`).join("; ")}</div>`
+        : `<small class="help">No other team member is currently active on this school.</small>`;
+    } catch {
+      host.innerHTML = `<small class="help">Collaboration status unavailable.</small>`;
+    }
+  }
+  function startPresence() {
+    if (presenceTimer) clearInterval(presenceTimer);
+    refreshPresence();
+    presenceTimer = setInterval(refreshPresence, 30000);
+  }
+
   /* --- Header ------------------------------------------------------------- */
   function header(r, s, stats, locked) {
     const schoolChoices = P10354.schools.map((x) => ({
@@ -55,7 +77,7 @@
         <div>
           <h1>${esc(s.name)}</h1>
           <p>${esc(s.region)} · ${esc(s.council)} · ${esc(s.ward)}<br>
-             Report <b>${esc(r.id)}</b> · version ${r.version} · last saved ${new Date(r.updatedAt).toLocaleString()}</p>
+             Report <b>${esc(r.id)}</b> · version ${r.version} · last saved ${new Date(r.updatedAt).toLocaleString()}${r.finalizedAt ? ` · finalized ${new Date(r.finalizedAt).toLocaleString()}` : ""}</p>
         </div>
         <div class="actions">${pill(r.status)}${locked ? pill("Locked", "alert") : ""}</div>
       </div>
@@ -72,6 +94,7 @@
             <small class="help">${stats.assessed}/${stats.questions - stats.na} assessed · ${stats.evidenceCount} evidence</small>
           </div>
         </div>
+        <div id="collab-status" class="collab-status"></div>
         <div class="summary">
           <span><b>${stats.assessed}</b> assessed</span>
           <span><b>${stats.notAssessed}</b> not assessed</span>
@@ -465,7 +488,7 @@
         rows: r.evidenceRegister,
         locked,
         rowLabel: (row, i) => row.name || `Evidence ${i + 1}`,
-        onAdd: () => { r.evidenceRegister.push({ consistency: "NOT CHECKED" }); commit("Evidence register entry added"); },
+        onAdd: () => { r.evidenceRegister.push({ id: P10354.uid("ER"), consistency: "NOT CHECKED" }); commit("Evidence register entry added"); },
         onChange: (i, key, value) => { r.evidenceRegister[i][key] = value; setStatusFromEdit(r); commit("Evidence register updated"); },
         onRemove: (i) => { r.evidenceRegister.splice(i, 1); commit("Evidence register entry removed"); },
       })}`;
@@ -482,7 +505,7 @@
         rows: r.findings,
         locked,
         rowLabel: (row, i) => `${row.severity || "Finding"} ${i + 1}${row.result ? ` · ${row.result}` : ""}`,
-        onAdd: () => { r.findings.push({ level: P10354.school(r.schoolId).name, status: "OPEN" }); commit("Finding added"); },
+        onAdd: () => { r.findings.push({ id: P10354.uid("FND"), level: P10354.school(r.schoolId).name, status: "OPEN" }); commit("Finding added"); },
         onChange: (i, key, value) => { r.findings[i][key] = value; setStatusFromEdit(r); commit("Finding updated"); },
         onRemove: (i) => { r.findings.splice(i, 1); commit("Finding removed"); },
       })}
@@ -503,7 +526,7 @@
       rows: r.debriefs,
       locked,
       rowLabel: (row, i) => row.date || `Debrief ${i + 1}`,
-      onAdd: () => { r.debriefs.push({ date: new Date().toISOString().slice(0, 10), location: P10354.school(r.schoolId).name }); commit("Daily debrief added"); },
+      onAdd: () => { r.debriefs.push({ id: P10354.uid("DB"), date: new Date().toISOString().slice(0, 10), location: P10354.school(r.schoolId).name }); commit("Daily debrief added"); },
       onChange: (i, key, value) => { r.debriefs[i][key] = value; commit("Daily debrief updated"); },
       onRemove: (i) => { r.debriefs.splice(i, 1); commit("Daily debrief removed"); },
     });
@@ -515,20 +538,38 @@
     const locked = LOCKED_STATUSES.includes(r.status);
 
     const actions = [];
-    if (!locked) actions.push(button("Save draft", () => { if (r.status !== "SUBMITTED") r.status = "DRAFT"; commit("Draft saved locally"); }, "btn secondary"));
-    if (!locked) actions.push(button("Submit school report", () => {
+    const editableDraftStates = ["DRAFT", "IN PROGRESS", "REQUIRES CLARIFICATION"];
+    if (!locked && editableDraftStates.includes(r.status)) actions.push(button("Save draft", () => { r.status = r.status === "REQUIRES CLARIFICATION" ? "IN PROGRESS" : "DRAFT"; commit("Draft saved locally"); }, "btn secondary"));
+    if (["DRAFT", "IN PROGRESS"].includes(r.status)) actions.push(button("Delete draft", () => deleteCurrentDraft(), "btn danger"));
+    if (!locked && editableDraftStates.includes(r.status)) actions.push(button("Submit school report", () => {
       if (blocked) return;
       r.status = "SUBMITTED"; r.submittedAt = P10354.now(); r.version += 1;
       commit("School report submitted");
     }, `btn large ${blocked ? "disabled" : ""}`));
-    if (isLeader()) {
+    if (isLeader() && r.status === "SUBMITTED") {
+      actions.push(button("Start review", () => {
+        r.status = "UNDER REVIEW"; r.version += 1; commit("Team Leader review started");
+      }, "btn secondary"));
+    }
+    if (isLeader() && ["UNDER REVIEW", "QA APPROVED"].includes(r.status)) {
       actions.push(button("Return for clarification", () => {
         r.status = "REQUIRES CLARIFICATION"; r.version += 1; commit("Returned for clarification");
       }, "btn secondary"));
+    }
+    if (isLeader() && r.status === "UNDER REVIEW") {
       actions.push(button("QA approve", () => {
         if (blocked) return;
-        r.status = "QA APPROVED"; commit("QA approved");
+        r.status = "QA APPROVED"; r.version += 1; commit("QA approved");
       }, `btn ${blocked ? "disabled" : ""}`));
+    }
+    if (isLeader() && r.status === "QA APPROVED") {
+      actions.push(button("Finalize report", () => {
+        if (blocked) return;
+        const confirmed = confirm("Finalize this report? Once finalized, the report will be locked for editing.");
+        if (!confirmed) return;
+        r.status = FINALIZED_STATUS; r.finalizedAt = P10354.now(); r.finalizedBy = actor(); r.version += 1;
+        commit("Report finalized and locked");
+      }, `btn large ${blocked ? "disabled" : ""}`));
     }
 
     return `
@@ -584,6 +625,17 @@
     { id: "submit", label: "Submit & history" },
   ];
 
+  function deleteCurrentDraft() {
+    const r = report();
+    const school = P10354.school(r.schoolId);
+    const ok = confirm(`Delete the draft report for ${school?.name || r.schoolId}? Uploaded evidence will remain in the Evidence Library.`);
+    if (!ok) return;
+    const result = P10354.deleteReport(r.schoolId, actor());
+    if (!result.ok) { alert(result.reason || "The report could not be deleted."); return; }
+    current = null;
+    location.href = "review.html";
+  }
+
   function render() {
     const host = UI.$("#assessment");
     const state = UI.snapshot(host);
@@ -591,7 +643,7 @@
     const s = school();
     const r = report();
     const stats = Scoring.reportStats(r);
-    const locked = LOCKED_STATUSES.includes(r.status) && !isLeader();
+    const locked = r.status === FINALIZED_STATUS || (LOCKED_STATUSES.includes(r.status) && !isLeader());
 
     const badges = {
       verification: stats.notAssessed || null,
@@ -614,7 +666,9 @@
 
     host.innerHTML = [
       header(r, s, stats, locked),
-      locked ? notice("<b>Report locked.</b> Submitted reports can be edited only after a Team Leader returns them for clarification.", "red") : "",
+      r.status === FINALIZED_STATUS
+        ? notice("<b>Final report locked.</b> This approved report cannot be edited. Any correction should be handled as a controlled amendment.", "red")
+        : locked ? notice("<b>Report locked.</b> Submitted reports can be edited only after a Team Leader returns them for clarification.", "red") : "",
       tabs(TABS.map((t) => ({ ...t, badge: badges[t.id] })), tab, (id) => { tab = id; syncUrl(); render(); window.scrollTo(0, 0); }),
       `<div class="tabbody">${body()}</div>`,
     ].join("");
@@ -622,11 +676,12 @@
     UI.wire(host);
     markCameraInputs(host);
     UI.restore(state, host);
+    startPresence();
   }
 
-    (async () => {
-    if (!(await UI.gateAuth())) return;
-    UI.chrome();
+  (async () => {
+  if (!(await UI.gateAuth())) return;
+  UI.chrome();
   render();
-  })();
+})();
 })();

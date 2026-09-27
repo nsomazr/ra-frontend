@@ -43,11 +43,13 @@ const UI = (() => {
   const NAV = [
     { id: "dashboard", href: "dashboard.html", label: "Command Centre" },
     { id: "actions", href: "actions.html", label: "Action Tracker" },
+    { id: "evidence", href: "evidence.html", label: "Evidence Library" },
     { id: "report", href: "executive-report.html", label: "Executive Report" },
     { id: "assessment", href: "school-assessment.html", label: "School Assessment" },
     { id: "programme", href: "programme.html", label: "Programme Workbook" },
     { id: "consent", href: "consent.html", label: "Consent & Assent" },
     { id: "review", href: "review.html", label: "Team Leader Review" },
+    { id: "conflicts", href: "conflicts.html", label: "Sync Conflicts" },
     { id: "admin", href: "admin.html", label: "Administration" },
   ];
 
@@ -57,7 +59,7 @@ const UI = (() => {
     const page = host.dataset.page;
     const subtitle = host.dataset.subtitle || "External Programmatic Assessment field system";
     const session = (typeof AssessAPI !== "undefined" && AssessAPI.session?.get?.()) || (window.P10354 && P10354.session.get()) || null;
-    const who = session?.username || session?.role || "";
+    const who = session?.username || session?.name || session?.role || "";
     host.innerHTML = `
       <header class="top">
         <div class="topin">
@@ -72,7 +74,10 @@ const UI = (() => {
           <div class="top-actions">
             <span class="project-tag">CBM · ${esc(F.meta.project)}</span>
             ${who ? `<span class="help" style="margin:0">${esc(who)}</span>` : ""}
-            <button id="sync" class="online sync-button" type="button" title="Synchronize saved work">Checking sync…</button>
+            <div class="sync-stack">
+              <button id="sync" class="online sync-button" type="button" title="Synchronize saved work">Checking sync…</button>
+              <div id="sync-meta" class="sync-meta" aria-live="polite"></div>
+            </div>
             <button id="logout" class="btn secondary small" type="button">Sign out</button>
           </div>
         </div>
@@ -92,7 +97,20 @@ const UI = (() => {
   }
 
   async function gateAuth() {
-    if (typeof AssessAPI === "undefined") return true;
+    if (typeof AssessAPI === "undefined") {
+      const session = P10354.session.get();
+      if (!session) {
+        const page = `${location.pathname.split("/").pop() || "dashboard.html"}${location.search}`;
+        location.replace(`login.html?next=${encodeURIComponent(page)}`);
+        return false;
+      }
+      return true;
+    }
+    if (!AssessAPI.tokens.get()?.access) {
+      const session = P10354.session.get();
+      if (session?.auth === "local") return true;
+      return AssessAPI.requireAuth();
+    }
     const user = await AssessAPI.ensureAuth();
     if (!user) return false;
     if (user.must_change_password) {
@@ -104,7 +122,13 @@ const UI = (() => {
 
   function syncBadge() {
     const el = $("#sync");
+    const meta = $("#sync-meta");
     if (!el) return;
+    const formatTime = (value) => {
+      if (!value) return "—";
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+    };
     const paint = () => {
       const online = navigator.onLine;
       const pending = (window.P10354 && typeof P10354.pendingSyncCount === "function") ? P10354.pendingSyncCount() : 0;
@@ -118,9 +142,18 @@ const UI = (() => {
       } else if (state.status === "SYNC ERROR") {
         el.textContent = `Sync error${pending ? ` · ${pending} pending` : ""}`;
         el.className = "online offline sync-button";
+      } else if (state.status === "SYNCED WITH CONFLICTS") {
+        const count = Array.isArray(state.conflicts) ? state.conflicts.length : 0;
+        el.textContent = `Sync complete · ${count} conflict${count === 1 ? "" : "s"}`;
+        el.className = "online offline sync-button";
       } else {
         el.textContent = `Online · ${state.lastSyncAt ? "synced" : "ready"}${pending ? ` · ${pending} pending` : ""}`;
         el.className = "online sync-button";
+      }
+      if (meta) {
+        const saved = typeof P10354?.getLastSavedAt === "function" ? P10354.getLastSavedAt() : "";
+        const synced = state.lastSyncAt || "";
+        meta.textContent = `Saved ${formatTime(saved)} · Synced ${formatTime(synced)}`;
       }
     };
     el.onclick = async () => {

@@ -40,6 +40,7 @@
      an object and then commits it, so it must be the object storage holds. */
   let currentProgramme = null;
   let currentProject = null;
+  let presenceTimer = null;
 
   function record() {
     if (!currentProgramme || currentProgramme.regionId !== regionId) currentProgramme = P10354.getProgramme(regionId);
@@ -64,6 +65,26 @@
   function syncUrl() {
     persistRegion(regionId);
     history.replaceState({}, "", `programme.html?region=${encodeURIComponent(regionId)}&tab=${encodeURIComponent(tab)}`);
+  }
+
+  async function refreshPresence() {
+    const host = document.getElementById("region-collab-status");
+    if (!host) return;
+    if (!navigator.onLine) { host.innerHTML = `<small class="help">Offline · collaboration status unavailable</small>`; return; }
+    try {
+      await P10354.presencePing({ regionId, page: "programme", tab });
+      const users = await P10354.getPresence({ regionId });
+      host.innerHTML = users.length
+        ? `<div class="collab-banner"><b>Team members currently working in this region:</b> ${users.map(u => `${esc(u.name)} · ${esc(u.role || "Team member")}${u.tab ? ` · ${esc(u.tab)}` : ""}`).join("; ")}</div>`
+        : `<small class="help">No other team member is currently active in this region.</small>`;
+    } catch {
+      host.innerHTML = `<small class="help">Collaboration status unavailable.</small>`;
+    }
+  }
+  function startPresence() {
+    if (presenceTimer) clearInterval(presenceTimer);
+    refreshPresence();
+    presenceTimer = setInterval(refreshPresence, 30000);
   }
 
   /* --- Header ------------------------------------------------------------- */
@@ -92,6 +113,7 @@
               window.scrollTo(0, 0);
             } })}
         </div>
+        <div id="region-collab-status" class="collab-status"></div>
         <div class="summary">
           <span><b>Selected region:</b> ${esc(r.name)}</span>
           <span><b>${rollup.started}/${rollup.schools}</b> school reports started</span>
@@ -354,7 +376,7 @@
         columns: F.registers.dataQuality,
         rows: p.dataQuality,
         rowLabel: (row, i) => row.claim ? row.claim.slice(0, 60) : `Claim ${i + 1}`,
-        onAdd: () => { p.dataQuality.push({}); commit("Data quality claim added"); },
+        onAdd: () => { p.dataQuality.push({ id: P10354.uid("DQ") }); commit("Data quality claim added"); },
         onChange: (i, key, value) => { p.dataQuality[i][key] = value; commit("Data quality claim updated"); },
         onRemove: (i) => { p.dataQuality.splice(i, 1); commit("Data quality claim removed"); },
       })}
@@ -364,7 +386,7 @@
         columns: F.registers.evidenceMap,
         rows: p.evidenceMap,
         rowLabel: (row, i) => row.conclusion ? row.conclusion.slice(0, 60) : `Conclusion ${i + 1}`,
-        onAdd: () => { p.evidenceMap.push({ confidence: "" }); commit("Evidence map entry added"); },
+        onAdd: () => { p.evidenceMap.push({ id: P10354.uid("EM"), confidence: "" }); commit("Evidence map entry added"); },
         onChange: (i, key, value) => { p.evidenceMap[i][key] = value; commit("Evidence map entry updated"); },
         onRemove: (i) => { p.evidenceMap.splice(i, 1); commit("Evidence map entry removed"); },
       })}`;
@@ -485,11 +507,12 @@
 
     UI.wire(host);
     UI.restore(state, host);
+    startPresence();
   }
 
-    (async () => {
-    if (!(await UI.gateAuth())) return;
-    UI.chrome();
+  (async () => {
+  if (!(await UI.gateAuth())) return;
+  UI.chrome();
   render();
-  })();
+})();
 })();

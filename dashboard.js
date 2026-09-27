@@ -71,10 +71,17 @@
     const actions=aggregateActions().filter(x=>x.finding.status!=="CLOSED").slice(0,6);
     return `<section class="card"><div class="pad"><h2>Priority actions</h2></div><div class="tablewrap"><table><thead><tr><th>School</th><th>Finding</th><th>Priority</th><th>Owner</th><th>Status</th></tr></thead><tbody>${actions.length?actions.map(x=>`<tr><td>${esc(x.school?.name||x.report.schoolId)}</td><td>${esc(x.finding.finding||x.finding.recommendation||"Action needed")}</td><td>${pill(x.finding.priority||x.finding.severity||"—", ["HIGH","CRITICAL"].includes(x.finding.priority||x.finding.severity)?"alert":"")}</td><td>${esc(x.finding.owner||"—")}</td><td>${pill(x.finding.status||"OPEN")}</td></tr>`).join(""):`<tr><td colspan="5" class="empty">No open actions.</td></tr>`}</tbody></table></div></section>`;
   }
+  function syncConflictSummary() {
+    const state = P10354.getSyncState();
+    const local = Array.isArray(state.conflicts) ? state.conflicts : [];
+    if (!local.length) return `<section class="card pad"><div class="section-head"><div><h2>Team sync</h2><p class="help">No unresolved synchronization conflicts reported on this device.</p></div><a class="btn secondary" href="conflicts.html">View conflict log</a></div></section>`;
+    return `<section class="card pad rowalert"><div class="section-head"><div><h2>Team sync needs review</h2><p class="help">${local.length} concurrent change${local.length===1?"":"s"} could not be merged automatically.</p></div><a class="btn" href="conflicts.html">Review conflicts</a></div><div class="tablewrap"><table><thead><tr><th>Area</th><th>Record</th><th>Issue</th></tr></thead><tbody>${local.slice(0,5).map(c=>`<tr><td>${esc(c.type||"—")}</td><td><small>${esc(c.recordId||c.record||"—")}</small></td><td>${esc(c.summary||"Concurrent change requires review")}</td></tr>`).join("")}</tbody></table></div></section>`;
+  }
+
   function render() {
     const host=UI.$("#dashboard"); const state=UI.snapshot(host); UI.reset();
     const db=P10354.load(); const reports=Object.values(db.reports); const stats=overallStats(reports);
-    host.innerHTML=[`<div class="heading"><div><h1>Project Command Centre</h1><p>${esc(F.meta.assessor)} · ${esc(F.meta.client)} · Project ${esc(F.meta.project)}</p></div><div class="actions"><a class="btn secondary" href="programme.html?tab=reconciliation">Reconciliation</a><a class="btn large" href="school-assessment.html">Start school assessment</a></div></div>`,commandCentre(stats),metrics(stats),regionTable(),actionSummary(),recentActions()].join("");
+    host.innerHTML=[syncConflictSummary(),`<div class="heading"><div><h1>Project Command Centre</h1><p>${esc(F.meta.assessor)} · ${esc(F.meta.client)} · Project ${esc(F.meta.project)}</p></div><div class="actions"><a class="btn secondary" href="evidence.html">Evidence Library</a><a class="btn secondary" href="programme.html?tab=reconciliation">Reconciliation</a><a class="btn large" href="school-assessment.html">Start school assessment</a></div></div>`,commandCentre(stats),metrics(stats),regionTable(),actionSummary(),recentActions()].join("");
     UI.wire(host); UI.restore(state,host);
   }
   (async () => { if (!(await UI.gateAuth())) return; UI.chrome(); render(); })();

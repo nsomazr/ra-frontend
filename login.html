@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Sign in · REET Field Assessment · P10354</title>
-  <link rel="stylesheet" href="styles.css?v=10">
+  <link rel="stylesheet" href="styles.css?v=13">
   <meta name="theme-color" content="#123b5d">
   <link rel="icon" type="image/png" href="assets/reet-icon.png">
 </head>
@@ -17,9 +17,9 @@
       </div>
       <p class="label">Field Assessment System</p>
       <h1>Sign in</h1>
-      <form id="login">
+      <form id="login" autocomplete="on">
         <label class="field"><span>Username</span>
-          <input name="username" type="text" autocomplete="username" required autofocus></label>
+          <input name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus></label>
         <label class="field"><span>Password</span>
           <input name="password" type="password" autocomplete="current-password" required></label>
         <p id="error" class="notice red hidden" role="alert"></p>
@@ -29,10 +29,10 @@
     </section>
   </main>
   <script src="/config.js"></script>
-  <script src="api.js?v=10"></script>
-  <script src="framework.js?v=10"></script>
-  <script src="sync-config.js?v=2"></script>
-  <script src="data.js?v=10"></script>
-  <script src="login.js?v=10"></script>
+  <script src="api.js?v=13"></script>
+  <script src="framework.js?v=13"></script>
+  <script src="sync-config.js?v=13"></script>
+  <script src="data.js?v=13"></script>
+  <script src="login.js?v=13"></script>
 </body>
 </html>

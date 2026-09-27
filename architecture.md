@@ -165,6 +165,15 @@ The current package now includes a Node.js server under `server/server.js`. It s
 
 The browser client automatically attempts synchronization when the device comes online, every 60 seconds, after saved changes, and when the user clicks the sync status button. The server keeps five recent state backups and writes synchronization events to `server/data/audit.jsonl`.
 
-The sync service uses record-level reconciliation based on `updatedAt` when more than one device has changed data. The client shows sync errors and pending changes rather than silently discarding them.
+The sync service uses field-level three-way reconciliation based on the last synchronized baseline and `updatedAt` when more than one device has changed data. The client shows sync errors and pending changes rather than silently discarding them.
 
 For deployment, run the included `start-server.bat` on Windows or `node server/server.js`. Set `P10354_API_KEY` and use HTTPS/reverse-proxy authentication for a protected production deployment.
+
+
+## Login fix — 2026-09-26
+
+The sign-in page is now wired to the application. Online sign-in uses `POST /api/auth/login`; offline sign-in uses the account already stored on the device. User creation and initial password changes provision the account to `server/data/users.json` when the API is reachable. New passwords use PBKDF2-SHA256 with a per-user salt.
+
+
+## Concurrent multi-user editing
+Two auditors can work on the same school at the same time. The client keeps the last synchronized server snapshot as the merge base. The server performs a three-way merge when changes arrive: edits to different fields are merged; the same-field edits are recorded as explicit conflicts. The Sync Conflicts page allows a Team Leader to keep the server value or apply the other auditor's value. Active users are shown through a short-lived server presence heartbeat.

@@ -14,9 +14,68 @@
 
   let tab = new URLSearchParams(location.search).get("tab") || "users";
 
-  async function hash(value) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  async function passwordVerifier(value, iterations = 210000) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(value), "PBKDF2", false, ["deriveBits"]);
+    const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations, hash: "SHA-256" }, key, 256);
+    const salt64 = btoa(String.fromCharCode(...salt));
+    const hash64 = btoa(String.fromCharCode(...new Uint8Array(bits)));
+    return `PBKDF2-SHA256$${iterations}$${salt64}$${hash64}`;
+  }
+
+  async function provisionServerUser(user) {
+    try {
+      const cfg = P10354.getSyncConfig();
+      if (!navigator.onLine || !cfg?.apiBase) return;
+      const headers = { "Content-Type": "application/json" };
+      if (cfg.token) headers["X-P10354-API-Key"] = cfg.token;
+      const response = await fetch(`${cfg.apiBase}/admin/users/upsert`, { method: "POST", headers, body: JSON.stringify(user) });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || `Server user provisioning failed (${response.status})`);
+      }
+    } catch (err) { console.warn("Server user provisioning unavailable", err); }
+  }
+
+  function apiHeaders(extra = {}) {
+    const cfg = P10354.getSyncConfig();
+    const headers = { ...extra };
+    if (cfg.token) headers['X-P10354-API-Key'] = cfg.token;
+    return { cfg, headers };
+  }
+
+  async function createServerBackup() {
+    const { cfg, headers } = apiHeaders();
+    if (!navigator.onLine || !cfg?.apiBase) { alert('The server is not available. Connect to the server first.'); return; }
+    try {
+      const response = await fetch(`${cfg.apiBase}/admin/backup`, { headers });
+      const body = await response.json();
+      if (!response.ok || !body?.backup) throw new Error(body?.error || `Backup failed (${response.status})`);
+      const blob = new Blob([JSON.stringify(body.backup, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `P10354_server_backup_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    } catch (error) { alert(`Backup failed: ${error.message}`); }
+  }
+
+  async function restoreServerBackup(file) {
+    if (!file) return;
+    const confirmed = confirm('Restore this server backup? The current server data will first be backed up automatically.');
+    if (!confirmed) return;
+    try {
+      const backup = JSON.parse(await file.text());
+      if (backup?.format !== 'P10354-SERVER-BACKUP-1') throw new Error('This is not a valid P10354 server backup file.');
+      const { cfg, headers } = apiHeaders({ 'Content-Type': 'application/json' });
+      if (!cfg?.apiBase) throw new Error('Server configuration is not available.');
+      const response = await fetch(`${cfg.apiBase}/admin/restore`, { method: 'POST', headers, body: JSON.stringify({ backup }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error || `Restore failed (${response.status})`);
+      alert(`Backup restored successfully. Server version: ${body.serverVersion}`);
+      await P10354.pullFromServer();
+      render();
+    } catch (error) { alert(`Restore failed: ${error.message}`); }
   }
 
   const db = () => P10354.load();
@@ -96,16 +155,17 @@
         error.classList.remove("hidden");
         return;
       }
-      d.users.push({
-        id: P10354.uid("USR"),
-        name: data.get("name"), username: data.get("username"),
-        passwordHash: await hash(data.get("password")),
+      const user = {
+        id: P10354.uid("USR"), name: String(data.get("name") || "").trim(),
+        username: String(data.get("username") || "").trim(),
+        passwordHash: await passwordVerifier(String(data.get("password") || "")),
         staffId: data.get("staffId") || "", email: data.get("email") || "", phone: data.get("phone") || "",
-        role: data.get("role"), region: data.get("region"),
-        schools: data.getAll("schools"),
+        role: data.get("role"), region: data.get("region"), schools: data.getAll("schools"),
         active: true, lastLogin: "", mustChangePassword: true,
-      });
+      };
+      d.users.push(user);
       P10354.save(d);
+      await provisionServerUser(user);
       render();
     };
   }
@@ -229,6 +289,16 @@
       </section>
 
       <section class="card pad">
+        <h2>Server backup & restore</h2>
+        <p class="help">Create a backup of the shared project data on the server. Restoring automatically creates a backup of the current server data first. Uploaded evidence files remain on the server during a data restore.</p>
+        <div class="actions">
+          ${button("Create server backup", createServerBackup, "btn secondary")}
+          <label class="btn secondary">Restore server backup<input id="serverRestoreFile" type="file" accept="application/json,.json" style="display:none"></label>
+        </div>
+        <p class="help">Use this before major data changes or at the end of a fieldwork day.</p>
+      </section>
+
+      <section class="card pad">
         <h2>Local data</h2>
         <div class="actions">
           ${button("Export full dataset (JSON)", () => {
@@ -266,12 +336,14 @@
 
     UI.wire(host);
     wireUserForm();
+    const restoreInput = UI.$("#serverRestoreFile", host);
+    if (restoreInput) restoreInput.onchange = () => restoreServerBackup(restoreInput.files?.[0]);
     UI.restore(state, host);
   }
 
-    (async () => {
-    if (!(await UI.gateAuth())) return;
-    UI.chrome();
+  (async () => {
+  if (!(await UI.gateAuth())) return;
+  UI.chrome();
   render();
-  })();
+})();
 })();

@@ -54,7 +54,6 @@
     };
     d.consents[record.id] = record;
     P10354.save(d);
-    if (typeof P10354.scheduleSync === "function") P10354.scheduleSync();
     form.code = "";
     form.caregiverCode = "";
     tab = "records";
@@ -68,7 +67,6 @@
     record.withdrawnAt = P10354.now();
     record.allowed = false;
     P10354.save(d);
-    if (typeof P10354.scheduleSync === "function") P10354.scheduleSync();
     render();
   }
 
@@ -209,9 +207,9 @@
     UI.restore(state, host);
   }
 
-    (async () => {
-    if (!(await UI.gateAuth())) return;
-    UI.chrome();
+  (async () => {
+  if (!(await UI.gateAuth())) return;
+  UI.chrome();
   render();
-  })();
+})();
 })();

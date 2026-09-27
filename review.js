@@ -55,11 +55,11 @@
             return `<tr>
               <td><b>${esc(school.name)}</b><br><small>${esc(school.region)}</small></td>
               <td><small>${esc(report.id)}</small></td>
-              <td>${pill(report.status)}</td><td>v${report.version}</td>
+              <td>${pill(report.status)}${report.finalizedAt ? `<br><small class="help">Finalized ${new Date(report.finalizedAt).toLocaleString()}</small>` : ""}</td><td>v${report.version}</td>
               <td><div class="progress small"><i style="width:${st.percent}%"></i></div><small>${st.assessed}/${st.questions - st.na}</small></td>
               <td>${flags || "—"}</td>
               <td><small>${new Date(report.updatedAt).toLocaleString()}</small></td>
-              <td><a class="btn secondary" href="school-assessment.html?school=${esc(school.id)}&role=leader">Review</a></td>
+              <td><div class="actions"><a class="btn secondary" href="school-assessment.html?school=${esc(school.id)}&role=leader">${report.status === "FINALIZED" ? "View final" : "Review"}</a>${["DRAFT", "IN PROGRESS"].includes(report.status) ? button("Delete draft", () => deleteDraftReport(school.id, school.name), "btn danger small") : ""}</div></td>
             </tr>`;
           }).join("") : `<tr><td colspan="8" class="empty">No school reports match this filter.</td></tr>`}</tbody>
         </table></div>
@@ -231,6 +231,19 @@
   }
 
   /* --- Exports ------------------------------------------------------------- */
+  function deleteDraftReport(schoolId, schoolName) {
+    const report = P10354.getReport(schoolId);
+    if (!report || !["DRAFT", "IN PROGRESS"].includes(report.status)) {
+      alert("Only draft or in-progress reports can be deleted.");
+      return;
+    }
+    const ok = confirm(`Delete the draft report for ${schoolName}? This removes the report from the shared assessment register. Uploaded evidence remains in the Evidence Library.`);
+    if (!ok) return;
+    const result = P10354.deleteReport(schoolId, P10354.session.get()?.username || "Team Leader");
+    if (!result.ok) { alert(result.reason || "The report could not be deleted."); return; }
+    render();
+  }
+
   function exportRegister() {
     const headers = ["Report ID", "School", "Region", "Council", "Ward", "Roster status", "Status", "Version",
       "Visit date", "Assessed", "Not assessed", "Evidence", "Disputes", "Single-source", "Safety risks", "Findings", "Submitted at"];
@@ -288,9 +301,9 @@
     UI.restore(state, host);
   }
 
-    (async () => {
-    if (!(await UI.gateAuth())) return;
-    UI.chrome();
+  (async () => {
+  if (!(await UI.gateAuth())) return;
+  UI.chrome();
   render();
-  })();
+})();
 })();

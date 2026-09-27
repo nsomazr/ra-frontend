@@ -11,7 +11,9 @@ const P10354 = (() => {
   const SYNC_QUEUE_KEY = "p10354-sync-queue";
   const SYNC_STATE_KEY = "p10354-sync-state";
   const SYNC_CONFIG_KEY = "p10354-sync-config";
-  const SCHEMA_VERSION = 5;
+  const SYNC_BASE_KEY = "p10354-sync-base-snapshot-v1";
+  const LAST_SAVED_KEY = "p10354-last-saved-at";
+  const SCHEMA_VERSION = 8;
   const DEFAULT_API_BASE = "http://127.0.0.1:8087/api";
   let syncTimer = null;
   let syncBusy = false;
@@ -136,6 +138,7 @@ const P10354 = (() => {
       schemaVersion: SCHEMA_VERSION,
       project: makeProject(),
       reports: {},
+      deletedReports: {},
       programmes: {},
       consents: {},
       users: defaultUsers.map((u) => ({ ...u })),
@@ -159,6 +162,7 @@ const P10354 = (() => {
       users: raw.users && raw.users.length ? raw.users : base.users,
       project: raw.project || base.project,
       reports: raw.reports || {},
+      deletedReports: raw.deletedReports || {},
       programmes: raw.programmes || {},
       consents: raw.consents || {},
     };
@@ -181,6 +185,7 @@ const P10354 = (() => {
         settings: { ...base.settings, ...(raw.settings || {}) },
         project: raw.project || base.project,
         reports: raw.reports || {},
+        deletedReports: raw.deletedReports || {},
         programmes: raw.programmes || {},
         legacy: raw.legacy || null,
       };
@@ -202,9 +207,15 @@ const P10354 = (() => {
 
   function save(db) {
     db.schemaVersion = SCHEMA_VERSION;
+    const savedAt = now();
     localStorage.setItem(KEY, JSON.stringify(db));
+    localStorage.setItem(LAST_SAVED_KEY, savedAt);
     try { window.dispatchEvent(new Event("p10354-data-saved")); } catch {}
     return db;
+  }
+
+  function getLastSavedAt() {
+    return localStorage.getItem(LAST_SAVED_KEY) || "";
   }
 
   function getSyncConfig() {
@@ -250,38 +261,40 @@ const P10354 = (() => {
       schemaVersion: SCHEMA_VERSION,
       project: db.project || null,
       reports: db.reports || {},
+      deletedReports: db.deletedReports || {},
       programmes: db.programmes || {},
       consents: db.consents || {},
-      settings: db.settings || null,
     };
+  }
+
+  function getBaseSnapshot() {
+    try {
+      const raw = localStorage.getItem(SYNC_BASE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return buildSyncSnapshot();
+  }
+
+  function setBaseSnapshot(snapshot) {
+    try { localStorage.setItem(SYNC_BASE_KEY, JSON.stringify(snapshot || buildSyncSnapshot())); } catch {}
   }
 
   function mergeServerSnapshot(snapshot) {
     if (!snapshot) return load();
     const db = load();
-    if (snapshot.project) {
-      db.project = {
-        ...(db.project || makeProject()),
-        ...snapshot.project,
-        reconciliation: {
-          ...((db.project && db.project.reconciliation) || {}),
-          ...(snapshot.project.reconciliation || {}),
-        },
-      };
-    }
-    if (snapshot.reports) {
-      db.reports = { ...(db.reports || {}), ...snapshot.reports };
-    }
-    if (snapshot.programmes) {
-      db.programmes = { ...(db.programmes || {}), ...snapshot.programmes };
-    }
-    if (snapshot.consents) {
-      db.consents = { ...(db.consents || {}), ...snapshot.consents };
-    }
-    const settingsSrc = snapshot.settings || snapshot.project?.settings;
-    if (settingsSrc) {
-      db.settings = { ...db.settings, ...settingsSrc };
-    }
+    db.project = snapshot.project || db.project;
+    db.reports = snapshot.reports || {};
+    db.deletedReports = snapshot.deletedReports || db.deletedReports || {};
+    db.programmes = snapshot.programmes || {};
+    Object.entries(db.deletedReports).forEach(([schoolId, tombstone]) => {
+      const report = db.reports[schoolId];
+      if (!report) return;
+      const deletedAt = new Date(tombstone.deletedAt || 0).getTime();
+      const updatedAt = new Date(report.updatedAt || report.createdAt || 0).getTime();
+      if (deletedAt >= updatedAt) delete db.reports[schoolId];
+      else delete db.deletedReports[schoolId];
+    });
+    db.consents = snapshot.consents || {};
     save(db);
     return db;
   }
@@ -323,7 +336,7 @@ const P10354 = (() => {
       try {
         const local = await getFile(id);
         if (!local?.file) continue;
-        const meta = { ...(local.meta || {}) };
+        const meta = local.meta || {};
         const base64 = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
@@ -332,16 +345,7 @@ const P10354 = (() => {
         });
         await apiRequest(`/evidence/upload/${encodeURIComponent(id)}/`, {
           method: "POST",
-          body: JSON.stringify({
-            id,
-            name: local.file.name,
-            type: local.file.type,
-            size: local.file.size,
-            meta,
-            base64,
-            schoolId: meta.schoolId || "",
-            reportId: meta.reportId || "",
-          }),
+          body: JSON.stringify({ id, name: local.file.name, type: local.file.type, size: local.file.size, meta, base64 }),
         });
       } catch (error) {
         console.warn("Evidence sync failed", id, error);
@@ -379,18 +383,62 @@ const P10354 = (() => {
     }
   }
 
-  async function hydrateFromServer() {
-    if (!navigator.onLine) return { ok: false, reason: "offline" };
-    const cfg = getSyncConfig();
-    if (!cfg.access && !cfg.token) return { ok: false, reason: "not authenticated" };
+  async function syncNow() {
+    if (syncBusy || !navigator.onLine) return { ok: false, reason: "offline" };
+    const authCfg = getSyncConfig();
+    if (!authCfg.access && !authCfg.token) return { ok: false, reason: "not authenticated" };
+    syncBusy = true;
+    setSyncState({ ...getSyncState(), status: "SYNCING", startedAt: now() });
     try {
-      const result = await apiRequest("/sync/pull/", { method: "POST", body: "{}" });
+      const state = getSyncState();
+      const sessionInfo = session.get() || {};
+      const baseSnapshot = getBaseSnapshot();
+      const result = await apiRequest("/sync/push", {
+        method: "POST",
+        body: JSON.stringify({
+          deviceId: getDeviceId(),
+          actor: sessionInfo.username || sessionInfo.name || "Unknown user",
+          baseVersion: Number(state.serverVersion || 0),
+          baseSnapshot,
+          snapshot: buildSyncSnapshot(),
+        }),
+      });
       mergeServerSnapshot(result.snapshot);
+      setBaseSnapshot(result.snapshot);
+      updateQueue("SYNCED");
+      await syncEvidenceToServer();
+      await syncEvidenceFromServer();
       setSyncState({
         serverVersion: result.serverVersion || 0,
-        status: "SYNCED",
-        lastSyncAt: now(),
-        deviceId: getDeviceId(),
+        status: result.conflicts?.length ? "SYNCED WITH CONFLICTS" : "SYNCED",
+        lastSyncAt: now(), deviceId: getDeviceId(), conflicts: result.conflicts || [],
+      });
+      try { window.dispatchEvent(new Event("p10354-sync-complete")); } catch {}
+      return { ok: true, ...result };
+    } catch (error) {
+      setSyncState({ ...getSyncState(), status: "SYNC ERROR", lastError: error.message, deviceId: getDeviceId() });
+      try { window.dispatchEvent(new Event("p10354-sync-complete")); } catch {}
+      return { ok: false, reason: error.message };
+    } finally { syncBusy = false; }
+  }
+
+  async function pullFromServer() {
+    if (!navigator.onLine) return { ok: false, reason: "offline" };
+    try {
+      const sessionInfo = session.get() || {};
+      const result = await apiRequest("/sync/pull", {
+        method: "POST",
+        body: JSON.stringify({
+          deviceId: getDeviceId(),
+          actor: sessionInfo.username || sessionInfo.name || "Unknown user",
+        }),
+      });
+      mergeServerSnapshot(result.snapshot);
+      setBaseSnapshot(result.snapshot);
+      setSyncState({
+        serverVersion: result.serverVersion || 0,
+        status: result.conflicts?.length ? "SYNCED WITH CONFLICTS" : "SYNCED",
+        lastSyncAt: now(), deviceId: getDeviceId(), conflicts: result.conflicts || [],
       });
       try { window.dispatchEvent(new Event("p10354-sync-complete")); } catch {}
       return { ok: true, ...result };
@@ -400,34 +448,50 @@ const P10354 = (() => {
     }
   }
 
-  async function syncNow() {
-    if (syncBusy || !navigator.onLine) return { ok: false, reason: "offline" };
-    const cfg = getSyncConfig();
-    if (!cfg.access && !cfg.token) return { ok: false, reason: "not authenticated" };
-    syncBusy = true;
-    setSyncState({ ...getSyncState(), status: "SYNCING", startedAt: now() });
+  async function getSyncConflicts() {
+    if (!navigator.onLine) return getSyncState().conflicts || [];
     try {
-      const state = getSyncState();
-      const result = await apiRequest("/sync/push/", {
-        method: "POST",
-        body: JSON.stringify({
-          deviceId: getDeviceId(),
-          baseVersion: Number(state.serverVersion || 0),
-          snapshot: buildSyncSnapshot(),
-        }),
-      });
+      const result = await apiRequest("/sync/conflicts");
+      return Array.isArray(result.conflicts) ? result.conflicts.filter(c => c.status === "OPEN") : [];
+    } catch { return getSyncState().conflicts || []; }
+  }
+
+  async function resolveSyncConflict(id, choice) {
+    const current = session.get() || {};
+    const result = await apiRequest("/sync/conflicts/resolve", {
+      method: "POST",
+      body: JSON.stringify({ id, choice, actor: current.username || current.name || "Team Leader" }),
+    });
+    if (result.snapshot) {
       mergeServerSnapshot(result.snapshot);
-      updateQueue("SYNCED");
-      await syncEvidenceToServer();
-      await syncEvidenceFromServer();
-      setSyncState({ serverVersion: result.serverVersion || 0, status: "SYNCED", lastSyncAt: now(), deviceId: getDeviceId(), conflicts: result.conflicts || [] });
-      try { window.dispatchEvent(new Event("p10354-sync-complete")); } catch {}
-      return { ok: true, ...result };
-    } catch (error) {
-      setSyncState({ ...getSyncState(), status: "SYNC ERROR", lastError: error.message, deviceId: getDeviceId() });
-      try { window.dispatchEvent(new Event("p10354-sync-complete")); } catch {}
-      return { ok: false, reason: error.message };
-    } finally { syncBusy = false; }
+      setBaseSnapshot(result.snapshot);
+    }
+    setSyncState({ ...getSyncState(), serverVersion: result.serverVersion || getSyncState().serverVersion, status: "SYNCED", conflicts: [] });
+    return result;
+  }
+
+  async function presencePing(context = {}) {
+    if (!navigator.onLine) return { ok: false, reason: "offline" };
+    const current = session.get() || {};
+    return apiRequest("/presence", {
+      method: "POST",
+      body: JSON.stringify({
+        deviceId: getDeviceId(), userId: current.userId || "", name: current.name || current.username || "Team member",
+        ...context,
+      }),
+    });
+  }
+
+  async function getPresence(context = {}) {
+    if (!navigator.onLine) return [];
+    const cfg = getSyncConfig();
+    const params = new URLSearchParams({ ...context, deviceId: getDeviceId() });
+    const headers = cfg.token ? { "X-P10354-API-Key": cfg.token } : {};
+    try {
+      const response = await fetch(`${cfg.apiBase}/presence?${params.toString()}`, { headers });
+      const body = await response.json();
+      return Array.isArray(body.users) ? body.users : [];
+    } catch { return []; }
   }
 
   function getDeviceId() {
@@ -483,6 +547,9 @@ const P10354 = (() => {
     }
     for (const key of ["childJourney", "interviews", "evidenceRegister", "findings", "debriefs"]) {
       if (!Array.isArray(report[key])) { report[key] = []; changed = true; }
+      report[key].forEach((item) => {
+        if (!item.id && !item.caseId) { item.id = uid(key.slice(0, 2).toUpperCase()); changed = true; }
+      });
     }
     if (!report.narrative) { report.narrative = blank.narrative; changed = true; }
     if (!report.team) { report.team = blank.team; changed = true; }
@@ -496,14 +563,36 @@ const P10354 = (() => {
 
   function putReport(report, event, actor) {
     const db = load();
+    const existing = db.reports[report.schoolId];
+    if (existing?.status === "FINALIZED") {
+      return existing;
+    }
     report.updatedAt = now();
     if (event) report.history.unshift({ at: now(), event, actor: actor || "Field Auditor" });
     if (report.history.length > 400) report.history.length = 400;
     db.reports[report.schoolId] = report;
+    if (db.deletedReports) delete db.deletedReports[report.schoolId];
     save(db);
     enqueueSync(event || "Report saved", actor || "Field Auditor", "report", report.schoolId);
     scheduleSync();
     return report;
+  }
+
+  function deleteReport(schoolId, actor) {
+    const db = load();
+    const report = db.reports[schoolId];
+    if (!report) return { ok: false, reason: "Report not found" };
+    if (!["DRAFT", "IN PROGRESS"].includes(report.status)) {
+      return { ok: false, reason: "Only draft or in-progress reports can be deleted." };
+    }
+    const deletedAt = now();
+    db.deletedReports = db.deletedReports || {};
+    db.deletedReports[schoolId] = { schoolId, reportId: report.id, deletedAt, actor: actor || "Field Auditor", status: "DELETED" };
+    delete db.reports[schoolId];
+    save(db);
+    enqueueSync("Draft report deleted", actor || "Field Auditor", "report-delete", schoolId);
+    scheduleSync();
+    return { ok: true, schoolId, reportId: report.id, deletedAt };
   }
 
   function allReports() { return Object.values(load().reports); }
@@ -550,6 +639,7 @@ const P10354 = (() => {
     }
     for (const key of ["dataQuality", "evidenceMap"]) {
       if (!Array.isArray(record[key])) { record[key] = []; changed = true; }
+      record[key].forEach((item) => { if (!item.id) { item.id = uid(key.slice(0, 2).toUpperCase()); changed = true; } });
     }
     if (changed) { db.programmes[regionId] = record; save(db); }
     return record;
@@ -562,7 +652,6 @@ const P10354 = (() => {
     db.programmes[record.regionId] = record;
     save(db);
     enqueueSync(event || "Programme workbook saved", actor || "System", "programme", record.regionId);
-    scheduleSync();
     return record;
   }
 
@@ -600,6 +689,15 @@ const P10354 = (() => {
     });
   }
 
+  async function listFiles() {
+    const store = await openStore();
+    return new Promise((resolve, reject) => {
+      const request = store.transaction("files", "readonly").objectStore("files").getAll();
+      request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : []);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
   /* Evidence is never hard-deleted from IndexedDB by a field action — the
      reference is detached from the report and the blob is kept for the sync
      queue. See architecture.md. */
@@ -619,27 +717,25 @@ const P10354 = (() => {
     return users().filter((u) => u.active && (!role || u.role === role));
   }
 
+  const hydrateFromServer = pullFromServer;
+
   return {
     SCHEMA_VERSION,
     framework: F,
     schools, school, schoolsInScope, activeRegionIds,
     load, save, emptyDb,
-    getReport, putReport, allReports, makeReport,
+    getReport, putReport, deleteReport, allReports, makeReport,
     getProject, putProject, getProgramme, putProgramme,
-    putFile, getFile, detachEvidence,
+    putFile, getFile, listFiles, detachEvidence,
     users, activeUsers, session,
     now, uid,
-    getDeviceId, getSyncConfig, getSyncState, pendingSyncCount, syncNow, scheduleSync, hydrateFromServer,
+    getDeviceId, getSyncConfig, getSyncState, getLastSavedAt, pendingSyncCount, syncNow, pullFromServer, hydrateFromServer, scheduleSync, getSyncConflicts, resolveSyncConflict, presencePing, getPresence,
   };
 })();
 
-// Sync to Django/SQLite when authenticated and online.
-const maybeSync = () => {
-  if (!navigator.onLine) return;
-  const tokens = (typeof AssessAPI !== "undefined" && AssessAPI.tokens?.get?.()) || null;
-  if (!tokens?.access) return;
-  P10354.syncNow();
-};
-setTimeout(maybeSync, 800);
-addEventListener("online", maybeSync);
-setInterval(maybeSync, 60000);
+// Start a lightweight server sync when the app is online. If the API is not
+// available (for example, a static preview), the field system continues to
+// work offline exactly as before.
+setTimeout(() => { if (navigator.onLine) P10354.syncNow(); }, 800);
+addEventListener("online", () => P10354.syncNow());
+setInterval(() => { if (navigator.onLine) P10354.syncNow(); }, 60000);
